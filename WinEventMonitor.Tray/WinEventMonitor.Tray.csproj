@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- NotifyIcon vive en WinForms; lo usamos junto a WPF -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>WinEventMonitor.Tray</RootNamespace>
+    <AssemblyName>WinEventMonitor.Tray</AssemblyName>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Description>Herramienta de monitorizacion de eventos de seguridad de Windows en tiempo real</Description>
+    <Authors>dgarciap88</Authors>
+    <Company>dgarciap88</Company>
+    <Copyright>Copyright (C) 2026 dgarciap88</Copyright>
+    <PackageProjectUrl>https://github.com/dgarciap88/WinEventMonitor</PackageProjectUrl>
+    <!-- Sin ventana de consola -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WebView2: comprueba la última versión en https://www.nuget.org/packages/Microsoft.Web.WebView2 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
+  </ItemGroup>
+
+</Project>

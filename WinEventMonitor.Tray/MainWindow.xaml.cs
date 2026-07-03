@@ -29,10 +29,20 @@ public partial class MainWindow : Window
             Log.Information("Inicializando WebView2 en puerto {Port}", _port);
             Log.Information("API Key presente: {HasKey}", !string.IsNullOrEmpty(_apiKey));
 
-            // Dejar que WebView2 use su carpeta por defecto.
-            // Una carpeta personalizada puede tener problemas de permisos
-            // cuando la app corre elevada (requireAdministrator).
-            await WebView.EnsureCoreWebView2Async();
+            // WebView2 necesita una carpeta de datos fuera de Program Files.
+            // El proceso hijo de Edge (Medium IL) no puede escribir en Program Files
+            // aunque el proceso padre sea administrador.
+            var userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "WinEventMonitor", "WebView2");
+            Directory.CreateDirectory(userDataFolder);
+            Log.Debug("WebView2 user data folder: {Folder}", userDataFolder);
+
+            var env = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: userDataFolder);
+
+            await WebView.EnsureCoreWebView2Async(env);
 
             // Interceptar peticiones /api/* para inyectar el header X-Api-Key
             WebView.CoreWebView2.AddWebResourceRequestedFilter(

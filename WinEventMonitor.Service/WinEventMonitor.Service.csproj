@@ -17,7 +17,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Forzar versiones 9.x de Microsoft.Extensions para evitar que NuGet
+         resuelva transitivamente a v10 en máquinas con .NET 10 SDK instalado -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.3" />
+    <PackageReference Include="System.Text.Json" Version="9.0.3" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.2" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="System.Management" Version="9.0.3" />

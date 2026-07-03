@@ -55,8 +55,17 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Files]
 ; Backend publicado (auto-contenido win-x64)
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Excluir explicitamente datos de usuario que NO deben sobreescribirse
-; (los datos viven en CommonAppData, no en app dir, asi que no hay conflicto)
+
+[InstallDelete]
+; Eliminar DLLs de Serilog obsoletas que no forman parte de la build actual
+; (el instalador copia ficheros nuevos pero no borra los que ya no existen)
+Type: files; Name: "{app}\Serilog.Extensions.Hosting.dll"
+Type: files; Name: "{app}\Serilog.AspNetCore.dll"
+Type: files; Name: "{app}\Serilog.Extensions.Logging.dll"
+Type: files; Name: "{app}\Serilog.Settings.Configuration.dll"
+Type: files; Name: "{app}\Serilog.Formatting.Compact.dll"
+Type: files; Name: "{app}\Serilog.Sinks.Console.dll"
+Type: files; Name: "{app}\Serilog.Sinks.Debug.dll"
 
 [Icons]
 ; Acceso directo en el menu inicio que abre la app Tray
@@ -110,6 +119,21 @@ var
 begin
   Exec('sc.exe', 'query {#MyAppServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := (ResultCode = 0);
+end;
+
+// Para el servicio ANTES de copiar ficheros (evita que el exe quede bloqueado)
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    if ServiceExists then
+    begin
+      Exec('sc.exe', 'stop {#MyAppServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Sleep(2000);
+    end;
+  end;
 end;
 
 // Al desinstalar: preguntar si se quiere conservar la base de datos

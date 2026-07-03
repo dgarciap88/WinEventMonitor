@@ -5,8 +5,7 @@
         Title="Windows Event Monitor"
         Width="1400" Height="860"
         MinWidth="900" MinHeight="600"
-        WindowStartupLocation="CenterScreen"
-        Icon="">
+        WindowStartupLocation="CenterScreen">
 
     <Grid>
         <!-- Panel de error (visible cuando el servicio no responde) -->

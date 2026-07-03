@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
+using Serilog;
 
 namespace WinEventMonitor.Tray;
 
@@ -26,19 +26,15 @@ public partial class MainWindow : Window
 
         try
         {
-            // Carpeta de datos de usuario de WebView2 en AppData (sin escritura en Program Files)
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WinEventMonitor", "WebView2");
+            Log.Information("Inicializando WebView2 en puerto {Port}", _port);
+            Log.Information("API Key presente: {HasKey}", !string.IsNullOrEmpty(_apiKey));
 
-            var env = await CoreWebView2Environment.CreateAsync(
-                browserExecutableFolder: null,
-                userDataFolder: userDataFolder);
-
-            await WebView.EnsureCoreWebView2Async(env);
+            // Dejar que WebView2 use su carpeta por defecto.
+            // Una carpeta personalizada puede tener problemas de permisos
+            // cuando la app corre elevada (requireAdministrator).
+            await WebView.EnsureCoreWebView2Async();
 
             // Interceptar peticiones /api/* para inyectar el header X-Api-Key
-            // (el usuario nunca ve ni introduce la clave)
             WebView.CoreWebView2.AddWebResourceRequestedFilter(
                 $"http://localhost:{_port}/api/*",
                 CoreWebView2WebResourceContext.All);
@@ -49,8 +45,7 @@ public partial class MainWindow : Window
             Navigate();
         }
         catch (Exception ex)
-        {
-            ShowError($"Error al inicializar WebView2:\n{ex.Message}\n\n" +
+        {            Log.Error(ex, "Error al inicializar WebView2");            ShowError($"Error al inicializar WebView2:\n{ex.Message}\n\n" +
                       "Asegúrate de tener instalado el runtime de Microsoft Edge WebView2.");
         }
     }
@@ -69,20 +64,24 @@ public partial class MainWindow : Window
     {
         if (args.IsSuccess)
         {
+            Log.Debug("Navegacion correcta a http://localhost:{Port}", _port);
             WebView.Visibility    = Visibility.Visible;
             ErrorPanel.Visibility = Visibility.Collapsed;
         }
         else if (args.WebErrorStatus == CoreWebView2WebErrorStatus.CannotConnect ||
                  args.WebErrorStatus == CoreWebView2WebErrorStatus.ServerUnreachable ||
-                 args.WebErrorStatus == CoreWebView2WebErrorStatus.Disconnected)
+                 args.WebErrorStatus == CoreWebView2WebErrorStatus.Disconnected ||
+                 args.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown)
         {
+            Log.Warning("Servicio no disponible en puerto {Port} — WebErrorStatus: {Status}", _port, args.WebErrorStatus);
             ShowError(
                 $"No se puede conectar con el servicio en http://localhost:{_port}\n\n" +
-                "Comprueba que el servicio WinEventMonitor está en ejecución:\n" +
-                "Panel de Control → Servicios → Windows Event Monitor");
+                "Comprueba que el servicio WinEventMonitor est\u00e1 en ejecuci\u00f3n:\n" +
+                "Panel de Control \u2192 Servicios \u2192 Windows Event Monitor");
         }
         else
         {
+            Log.Error("Error de navegacion: {Status}", args.WebErrorStatus);
             ShowError($"Error de navegación: {args.WebErrorStatus}");
         }
     }

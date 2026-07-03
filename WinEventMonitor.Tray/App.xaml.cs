@@ -1,7 +1,9 @@
 using System.Drawing;
+using System.IO;
 using System.ServiceProcess;
 using System.Windows;
 using System.Windows.Forms;
+using Serilog;
 using Application = System.Windows.Application;
 
 namespace WinEventMonitor.Tray;
@@ -95,6 +97,8 @@ public partial class App : Application
             _tray.Visible = false;
             _tray.Dispose();
         }
+        Log.Information("Tray cerrado");
+        Log.CloseAndFlush();
         _mutex?.ReleaseMutex();
         Shutdown();
     }

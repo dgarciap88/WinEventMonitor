@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using WinEventMonitor.Service.Api;
 using WinEventMonitor.Service.Data;
 using WinEventMonitor.Service.Security;
@@ -10,6 +11,26 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Puerto configurable (appsettings.json → EventMonitor:Port, default 51847)
 var port = 51847;
+
+// --- Logging a fichero (Serilog, rolling diario, 7 días) ---
+var logDir = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+    "WinEventMonitor", "logs");
+Directory.CreateDirectory(logDir);
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.File(
+        Path.Combine(logDir, "service-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 7,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 // --- Soporte servicio de Windows (no-op en consola/dev) ---
 builder.Host.UseWindowsService();

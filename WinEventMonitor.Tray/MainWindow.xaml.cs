@@ -29,11 +29,13 @@ public partial class MainWindow : Window
             Log.Information("Inicializando WebView2 en puerto {Port}", _port);
             Log.Information("API Key presente: {HasKey}", !string.IsNullOrEmpty(_apiKey));
 
-            // WebView2 necesita una carpeta de datos fuera de Program Files.
-            // El proceso hijo de Edge (Medium IL) no puede escribir en Program Files
-            // aunque el proceso padre sea administrador.
+            // WebView2 necesita una carpeta de datos escribible por su proceso hijo (Medium IL).
+            // - ProgramData: creada por el admin, el proceso hijo de Edge no puede escribir → falla
+            // - Program Files: claramente solo lectura → falla
+            // - LocalApplicationData (C:\Users\...\AppData\Local): el proceso hijo
+            //   corre como el usuario actual y SÍ puede escribir aquí aunque el padre sea admin.
             var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "WinEventMonitor", "WebView2");
             Directory.CreateDirectory(userDataFolder);
             Log.Debug("WebView2 user data folder: {Folder}", userDataFolder);

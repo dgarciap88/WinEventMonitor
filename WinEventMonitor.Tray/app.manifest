@@ -4,8 +4,9 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- requireAdministrator para leer el api.key de ProgramData -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+        <!-- La Tray no necesita admin: solo lee api.key (ProgramData, legible por todos)
+             y conecta a localhost. El servicio Windows es el que corre como SYSTEM. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>

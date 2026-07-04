@@ -60,7 +60,7 @@ builder.Services.AddSingleton<SystemHealthService>();
 port = builder.Configuration.GetValue<int>("EventMonitor:Port", 51847);
 builder.Services.AddCors(options =>
     options.AddPolicy("LocalOnly", policy =>
-        policy.WithOrigins("http://localhost:5173", "http://localhost:5174", $"http://localhost:{port}", $"http://127.0.0.1:{port}")
+        policy.WithOrigins("http://localhost:5173", "http://localhost:5174", $"http://localhost:{port}", $"http://127.0.0.1:{port}", "http://wem.local")
               .WithHeaders("X-Api-Key", "Content-Type")
               .WithMethods("GET", "POST", "DELETE", "PATCH")));
 

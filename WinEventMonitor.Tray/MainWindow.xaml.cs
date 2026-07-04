@@ -10,6 +10,7 @@ public partial class MainWindow : Window
 {
     private string _apiKey = "";
     private int    _port   = 51847;
+    private string? _uiOrigin;  // "http://wem.local" si hay wwwroot local, null = usar servicio
 
     public MainWindow()
     {
@@ -46,35 +47,26 @@ public partial class MainWindow : Window
 
             await WebView.EnsureCoreWebView2Async(env);
 
-            // Inyectar script que parcheará el frontend ANTES de que React se cargue.
-            // Redirige cualquier llamada HTTP al puerto o host incorrecto al correcto.
-            // Necesario cuando wwwroot contiene un build antiguo con otra URL hardcodeada.
-            await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($@"
-(function() {{
-    var correctBase = 'http://127.0.0.1:{_port}';
-    var oldBases = [
-        'http://localhost:5000', 'http://127.0.0.1:5000',
-        'http://localhost:{_port}', 'http://127.0.0.1:51847',
-        'http://localhost:51847'
-    ];
-    function fixUrl(url) {{
-        if (typeof url !== 'string') return url;
-        for (var b of oldBases) {{
-            if (url.startsWith(b + '/api')) return correctBase + url.slice(b.length);
-        }}
-        return url;
-    }}
-    var origOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(m, url) {{
-        arguments[1] = fixUrl(url); return origOpen.apply(this, arguments);
-    }};
-    var origFetch = window.fetch;
-    window.fetch = function(url, opts) {{ return origFetch.call(window, fixUrl(url), opts); }};
-}})();
-");
+            // Servir la UI directamente desde el wwwroot del propio Tray.
+            // Así los cambios de frontend son visibles sin reinstalar el servicio.
+            // El Tray mapea "wem.local" a su carpeta wwwroot local.
+            var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            if (Directory.Exists(wwwrootPath))
+            {
+                Log.Debug("Sirviendo UI desde wwwroot local: {Path}", wwwrootPath);
+                WebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    "wem.local", wwwrootPath,
+                    CoreWebView2HostResourceAccessKind.Allow);
+                _uiOrigin = "http://wem.local";
+            }
+            else
+            {
+                Log.Warning("wwwroot no encontrado, usando servicio como fallback");
+                _uiOrigin = null;
+            }
 
             // Interceptar peticiones /api/* para inyectar el header X-Api-Key
-            // Filtros para ambos: 127.0.0.1 (navegación) y localhost (llamadas AJAX del React)
+            // Filtros para: 127.0.0.1 (navegación) y localhost (llamadas AJAX del React)
             WebView.CoreWebView2.AddWebResourceRequestedFilter(
                 $"http://127.0.0.1:{_port}/api/*",
                 CoreWebView2WebResourceContext.All);
@@ -137,9 +129,12 @@ public partial class MainWindow : Window
     {
         WebView.Visibility    = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
-        // Navega a /index.html directamente (evita el redirect de UseDefaultFiles
-        // que pasa por ApiKeyMiddleware y devuelve 401)
-        WebView.CoreWebView2?.Navigate($"http://127.0.0.1:{_port}/index.html");
+        if (_uiOrigin != null)
+            // UI servida localmente desde wwwroot del Tray (siempre la última versión)
+            WebView.CoreWebView2?.Navigate($"{_uiOrigin}/index.html");
+        else
+            // Fallback: UI servida por el servicio (puede ser versión antigua)
+            WebView.CoreWebView2?.Navigate($"http://127.0.0.1:{_port}/index.html");
     }
 
     private void ShowError(string message)

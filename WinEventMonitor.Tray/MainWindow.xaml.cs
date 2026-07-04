@@ -48,7 +48,7 @@ public partial class MainWindow : Window
 
             // Interceptar peticiones /api/* para inyectar el header X-Api-Key
             WebView.CoreWebView2.AddWebResourceRequestedFilter(
-                $"http://localhost:{_port}/api/*",
+                $"http://127.0.0.1:{_port}/api/*",
                 CoreWebView2WebResourceContext.All);
 
             WebView.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
@@ -106,7 +106,9 @@ public partial class MainWindow : Window
     {
         WebView.Visibility    = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
-        WebView.CoreWebView2?.Navigate($"http://localhost:{_port}");
+        // Navega a /index.html directamente (evita el redirect de UseDefaultFiles
+        // que pasa por ApiKeyMiddleware y devuelve 401)
+        WebView.CoreWebView2?.Navigate($"http://127.0.0.1:{_port}/index.html");
     }
 
     private void ShowError(string message)

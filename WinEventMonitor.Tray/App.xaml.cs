@@ -26,6 +26,30 @@ public partial class App : Application
             return;
         }
 
+        // Log en AppData\Local (escribible por usuario sin admin)
+        var logDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WinEventMonitor", "logs");
+        Directory.CreateDirectory(logDir);
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.File(
+                Path.Combine(logDir, "tray-.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
+            Log.Fatal(ex.ExceptionObject as Exception, "Excepcion no manejada");
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            Log.Error(ex.Exception, "Excepcion no manejada en Dispatcher");
+            ex.Handled = true;
+        };
+
+        Log.Information("Tray iniciado");
+
         _tray = new NotifyIcon
         {
             Icon   = CreateIcon(),

@@ -15,6 +15,15 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        // Los ficheros estáticos (/, /index.html, /assets/*) no requieren API key.
+        // Solo los endpoints /api/* están protegidos — ya que el servidor
+        // solo escucha en 127.0.0.1, los ficheros estáticos no suponen riesgo.
+        if (!context.Request.Path.StartsWithSegments("/api"))
+        {
+            await _next(context);
+            return;
+        }
+
         var provided = context.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (!_apiKeyService.Validate(provided))
         {

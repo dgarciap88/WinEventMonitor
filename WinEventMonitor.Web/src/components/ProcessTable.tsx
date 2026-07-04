@@ -153,8 +153,17 @@ export function ProcessTable() {
                 <td className="px-3 py-1.5 text-gray-600">{r.userName}</td>
                 <td className="px-3 py-1.5"><ElevatedBadge elevated={r.isElevated} /></td>
                 <td className="px-3 py-1.5 text-gray-500">{r.integrityLevel}</td>
-                <td className="px-3 py-1.5 font-mono text-xs max-w-xs truncate" title={r.commandLine ?? ''}>
-                  {r.commandLine}
+                <td className="px-3 py-1.5 font-mono text-xs max-w-xs" title={r.commandLine ?? ''}>
+                  <div className="flex items-center gap-1 group">
+                    <span className="truncate">{r.commandLine}</span>
+                    {r.commandLine && (
+                      <button
+                        className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-400 hover:text-blue-600 transition-opacity"
+                        title="Copiar comando completo"
+                        onClick={() => navigator.clipboard.writeText(r.commandLine!)}
+                      >⎘</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -119,15 +119,24 @@ export function NetworkTable() {
                 <td className="px-3 py-1.5"><Timestamp value={r.timestamp} /></td>
                 <td className="px-3 py-1.5 font-mono text-xs">{r.pid}</td>
                 <td className="px-3 py-1.5">
-                  <span className="font-medium block">{r.processName}</span>
-                  {r.executablePath && (
-                    <span
-                      className="text-[10px] text-gray-400 block truncate max-w-[200px]"
-                      title={r.executablePath}
-                    >
-                      {r.executablePath}
-                    </span>
-                  )}
+                  <div className="group">
+                    <span className="font-medium block">{r.processName}</span>
+                    {r.executablePath && (
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="text-[10px] text-gray-400 block truncate max-w-[200px]"
+                          title={r.executablePath}
+                        >
+                          {r.executablePath}
+                        </span>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-400 hover:text-blue-600 transition-opacity text-xs"
+                          title="Copiar ruta completa"
+                          onClick={() => navigator.clipboard.writeText(r.executablePath!)}
+                        >⎘</button>
+                      </div>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-1.5 text-gray-600">{r.userName}</td>
                 <td className="px-3 py-1.5 text-gray-500">{r.protocol}</td>

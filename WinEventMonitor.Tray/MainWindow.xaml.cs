@@ -46,9 +46,40 @@ public partial class MainWindow : Window
 
             await WebView.EnsureCoreWebView2Async(env);
 
+            // Inyectar script que parcheará el frontend ANTES de que React se cargue.
+            // Redirige cualquier llamada HTTP al puerto o host incorrecto al correcto.
+            // Necesario cuando wwwroot contiene un build antiguo con otra URL hardcodeada.
+            await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($@"
+(function() {{
+    var correctBase = 'http://127.0.0.1:{_port}';
+    var oldBases = [
+        'http://localhost:5000', 'http://127.0.0.1:5000',
+        'http://localhost:{_port}', 'http://127.0.0.1:51847',
+        'http://localhost:51847'
+    ];
+    function fixUrl(url) {{
+        if (typeof url !== 'string') return url;
+        for (var b of oldBases) {{
+            if (url.startsWith(b + '/api')) return correctBase + url.slice(b.length);
+        }}
+        return url;
+    }}
+    var origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(m, url) {{
+        arguments[1] = fixUrl(url); return origOpen.apply(this, arguments);
+    }};
+    var origFetch = window.fetch;
+    window.fetch = function(url, opts) {{ return origFetch.call(window, fixUrl(url), opts); }};
+}})();
+");
+
             // Interceptar peticiones /api/* para inyectar el header X-Api-Key
+            // Filtros para ambos: 127.0.0.1 (navegación) y localhost (llamadas AJAX del React)
             WebView.CoreWebView2.AddWebResourceRequestedFilter(
                 $"http://127.0.0.1:{_port}/api/*",
+                CoreWebView2WebResourceContext.All);
+            WebView.CoreWebView2.AddWebResourceRequestedFilter(
+                $"http://localhost:{_port}/api/*",
                 CoreWebView2WebResourceContext.All);
 
             WebView.CoreWebView2.WebResourceRequested += OnWebResourceRequested;

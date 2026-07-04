@@ -51,7 +51,7 @@ function KpiCard({ title, value, sub, pct, barColor }: KpiCardProps) {
 
 function Sparkline({ points, color = '#3b82f6' }: { points: number[]; color?: string }) {
   if (points.length < 2) return <span className="text-gray-300 text-xs">—</span>;
-  const W = 120, H = 32, pad = 2;
+  const W = 400, H = 52, pad = 2;
   const max = Math.max(...points, 1);
   const coords = points.map((v, i) => {
     const x = pad + (i / (points.length - 1)) * (W - pad * 2);
@@ -60,8 +60,8 @@ function Sparkline({ points, color = '#3b82f6' }: { points: number[]; color?: st
   });
   const last = points[points.length - 1];
   return (
-    <div className="flex items-center gap-2">
-      <svg width={W} height={H} className="overflow-visible">
+    <div className="flex items-center gap-3 flex-1 min-w-0">
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="overflow-visible flex-1" style={{minWidth: 0}}>
         <polyline
           points={coords.join(' ')}
           fill="none"
@@ -71,7 +71,7 @@ function Sparkline({ points, color = '#3b82f6' }: { points: number[]; color?: st
           strokeLinecap="round"
         />
       </svg>
-      <span className="text-xs font-mono text-gray-700 w-10 text-right">{last.toFixed(1)}%</span>
+      <span className="text-xs font-mono text-gray-700 w-12 text-right flex-shrink-0">{last.toFixed(1)}%</span>
     </div>
   );
 }
@@ -93,14 +93,14 @@ function SparklinePanel() {
 
   return (
     <div className="bg-white rounded-xl border shadow-sm p-4">
-      <span className="text-sm font-semibold text-gray-700 block mb-3">Histórico (2 min)</span>
-      <div className="flex flex-col gap-3">
+      <span className="text-sm font-semibold text-gray-700 block mb-4">Histórico (2 min)</span>
+      <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 w-12">CPU</span>
+          <span className="text-xs text-gray-500 w-12 flex-shrink-0">CPU</span>
           <Sparkline points={cpuPts} color="#3b82f6" />
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 w-12">RAM</span>
+          <span className="text-xs text-gray-500 w-12 flex-shrink-0">RAM</span>
           <Sparkline points={ramPts} color="#10b981" />
         </div>
       </div>

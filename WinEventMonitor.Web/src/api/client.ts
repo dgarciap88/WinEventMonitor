@@ -24,8 +24,10 @@ import type {
 
 // La API Key se lee del fichero generado por el servicio.
 // En dev la pasamos por variable de entorno del navegador.
+// En producción (WebView2) usamos 127.0.0.1 para evitar que Chromium
+// resuelva "localhost" a ::1 (IPv6) en vez de 127.0.0.1 (IPv4).
 const API_KEY = import.meta.env.VITE_API_KEY ?? '';
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000';
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:51847';
 
 const client = axios.create({
   baseURL: BASE_URL,

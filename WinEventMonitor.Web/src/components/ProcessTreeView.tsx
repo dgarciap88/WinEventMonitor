@@ -293,25 +293,47 @@ function ProcessRow({ node, depth, expandedPids, togglePid, highlightedPid, aler
           <IntegrityBadge level={node.integrityLevel} />
         </td>
         {/* Ruta ejecutable + CommandLine */}
-        <td
-          className="px-2 py-1 text-gray-400 max-w-xs"
-          title={[node.executablePath, node.commandLine].filter(Boolean).join('\n')}
-        >
-          {node.executablePath && (
-            <span className="block truncate text-gray-500 font-mono" style={{fontSize:'10px'}}>
-              {truncate(node.executablePath, 55)}
-            </span>
-          )}
-          {node.commandLine && (
-            <span className="block truncate text-gray-400" style={{fontSize:'10px'}}>
-              {truncate(node.commandLine, 55)}
-            </span>
-          )}
-          {!node.executablePath && !node.commandLine && '\u2014'}
+        <td className="px-2 py-1 text-gray-400 max-w-xs">
+          <div className="group">
+            {node.executablePath && (
+              <div className="flex items-center gap-1">
+                <span className="block truncate text-gray-500 font-mono" style={{fontSize:'10px'}} title={node.executablePath}>
+                  {truncate(node.executablePath, 55)}
+                </span>
+                <button
+                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-300 hover:text-blue-500 transition-opacity text-xs"
+                  title="Copiar ruta"
+                  onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(node.executablePath!); }}
+                >⎘</button>
+              </div>
+            )}
+            {node.commandLine && (
+              <div className="flex items-center gap-1">
+                <span className="block truncate text-gray-400" style={{fontSize:'10px'}} title={node.commandLine}>
+                  {truncate(node.commandLine, 55)}
+                </span>
+                <button
+                  className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-300 hover:text-blue-500 transition-opacity text-xs"
+                  title="Copiar comando"
+                  onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(node.commandLine!); }}
+                >⎘</button>
+              </div>
+            )}
+            {!node.executablePath && !node.commandLine && '—'}
+          </div>
         </td>
         {/* Hash SHA256 */}
         <td className="px-2 py-1 text-gray-300 font-mono max-w-[80px] truncate" title={node.sha256 ?? ''}>
-          {node.sha256 ? node.sha256.slice(0, 8) + '…' : '—'}
+          <div className="group flex items-center gap-1">
+            <span>{node.sha256 ? node.sha256.slice(0, 8) + '…' : '—'}</span>
+            {node.sha256 && (
+              <button
+                className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-gray-300 hover:text-blue-500 transition-opacity text-xs"
+                title="Copiar SHA256 completo"
+                onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(node.sha256!); }}
+              >⎘</button>
+            )}
+          </div>
         </td>
         {/* Timeline */}
         <td className="px-2 py-1">

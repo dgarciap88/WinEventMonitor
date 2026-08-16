@@ -8,9 +8,9 @@ namespace WinEventMonitor.Tray;
 
 public partial class MainWindow : Window
 {
-    private string _apiKey = "";
-    private int    _port   = 51847;
-    private string? _uiOrigin;  // "http://wem.local" si hay wwwroot local, null = usar servicio
+    private string _apiKey    = "";
+    private int    _port      = 51847;
+    private string _wwwroot   = "";   // ruta local a wwwroot del Tray
 
     public MainWindow()
     {
@@ -47,31 +47,16 @@ public partial class MainWindow : Window
 
             await WebView.EnsureCoreWebView2Async(env);
 
-            // Servir la UI directamente desde el wwwroot del propio Tray.
-            // Así los cambios de frontend son visibles sin reinstalar el servicio.
-            // El Tray mapea "wem.local" a su carpeta wwwroot local.
-            var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-            if (Directory.Exists(wwwrootPath))
-            {
-                Log.Debug("Sirviendo UI desde wwwroot local: {Path}", wwwrootPath);
-                WebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                    "wem.local", wwwrootPath,
-                    CoreWebView2HostResourceAccessKind.Allow);
-                _uiOrigin = "http://wem.local";
-            }
-            else
-            {
-                Log.Warning("wwwroot no encontrado, usando servicio como fallback");
-                _uiOrigin = null;
-            }
+            _wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+            Log.Debug(_wwwroot != "" && Directory.Exists(_wwwroot)
+                ? "wwwroot local encontrado: {Path}" : "wwwroot no encontrado, usando servicio", _wwwroot);
 
-            // Interceptar peticiones /api/* para inyectar el header X-Api-Key
-            // Filtros para: 127.0.0.1 (navegación) y localhost (llamadas AJAX del React)
+            // Interceptar TODOS los requests al servicio.
+            // - Ficheros estáticos: servirlos desde el wwwroot local del Tray (siempre actualizados).
+            // - Llamadas /api/*: inyectar el header X-Api-Key.
+            // Al navegar a http://127.0.0.1:{_port}/ el origen es el servicio → sin CORS.
             WebView.CoreWebView2.AddWebResourceRequestedFilter(
-                $"http://127.0.0.1:{_port}/api/*",
-                CoreWebView2WebResourceContext.All);
-            WebView.CoreWebView2.AddWebResourceRequestedFilter(
-                $"http://localhost:{_port}/api/*",
+                $"http://127.0.0.1:{_port}/*",
                 CoreWebView2WebResourceContext.All);
 
             WebView.CoreWebView2.WebResourceRequested += OnWebResourceRequested;
@@ -85,10 +70,39 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── Inyección automática de la API Key ───────────────────────────────────
+    // ── Interceptar ficheros estáticos + inyección de API Key ─────────────────
 
     private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs args)
     {
+        var uri = new Uri(args.Request.Uri);
+        var path = uri.AbsolutePath;
+
+        if (!path.StartsWith("/api") && Directory.Exists(_wwwroot))
+        {
+            // Fichero estático: servir desde wwwroot local del Tray
+            var filePath = path == "/" || path == "/index.html"
+                ? Path.Combine(_wwwroot, "index.html")
+                : Path.Combine(_wwwroot, path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+            if (File.Exists(filePath))
+            {
+                var ext = Path.GetExtension(filePath).ToLower();
+                var mime = ext switch {
+                    ".html" => "text/html",
+                    ".js"   => "application/javascript",
+                    ".css"  => "text/css",
+                    ".svg"  => "image/svg+xml",
+                    ".png"  => "image/png",
+                    _       => "application/octet-stream"
+                };
+                var stream = File.OpenRead(filePath);
+                args.Response = WebView.CoreWebView2.Environment.CreateWebResourceResponse(
+                    stream, 200, "OK", $"Content-Type: {mime}");
+                return;
+            }
+        }
+
+        // Petición a /api/*: inyectar API Key
         if (!string.IsNullOrEmpty(_apiKey))
             args.Request.Headers.SetHeader("X-Api-Key", _apiKey);
     }
@@ -129,12 +143,7 @@ public partial class MainWindow : Window
     {
         WebView.Visibility    = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Collapsed;
-        if (_uiOrigin != null)
-            // UI servida localmente desde wwwroot del Tray (siempre la última versión)
-            WebView.CoreWebView2?.Navigate($"{_uiOrigin}/index.html");
-        else
-            // Fallback: UI servida por el servicio (puede ser versión antigua)
-            WebView.CoreWebView2?.Navigate($"http://127.0.0.1:{_port}/index.html");
+        WebView.CoreWebView2?.Navigate($"http://127.0.0.1:{_port}/index.html");
     }
 
     private void ShowError(string message)

@@ -28,14 +28,21 @@ public class AlertService
         try
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
+
+            // Excepcion: regla+proceso marcados como "confio en esto" no se vuelven
+            // a persistir. ProcessName null en la excepcion = silencia la regla entera.
+            var suppressed = await db.AlertExceptions.AsNoTracking().AnyAsync(x =>
+                x.Rule == alert.Rule && (x.ProcessName == null || x.ProcessName == alert.ProcessName));
+            if (suppressed) return;
+
             db.AlertEvents.Add(alert);
             await db.SaveChangesAsync();
+            lock (_lock) _memCount++;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error persisting alert {Rule}", alert.Rule);
         }
-        lock (_lock) _memCount++;
     }
 
     /// <summary>Recuento rápido (en memoria desde arranque). No incluye alertas de sesiones anteriores.</summary>

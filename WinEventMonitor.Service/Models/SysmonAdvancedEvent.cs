@@ -5,14 +5,15 @@ namespace WinEventMonitor.Service.Models;
 ///   ID 7  – Image Load (DLL / módulo cargado en un proceso)
 ///   ID 8  – CreateRemoteThread (inyección de hilo en proceso externo)
 ///   ID 10 – ProcessAccess (apertura de proceso ajeno con permisos de lectura, típico en credential dump)
+///   ID 13 – RegistryEvent (valor de registro modificado, usado para detectar persistencia)
 ///
-/// Un único modelo evita la proliferación de tablas para estos tres tipos relacionados.
+/// Un único modelo evita la proliferación de tablas para estos tipos relacionados.
 /// </summary>
 public class SysmonAdvancedEvent
 {
     public int Id { get; set; }
     public DateTime Timestamp { get; set; }
-    public int EventId { get; set; }              // 7, 8 o 10
+    public int EventId { get; set; }              // 7, 8, 10 o 13
 
     // ── Proceso origen ─────────────────────────────────────────────────────
     public int SourcePid { get; set; }
@@ -37,4 +38,8 @@ public class SysmonAdvancedEvent
     // ── ID 10: ProcessAccess ──────────────────────────────────────────────
     public string? GrantedAccess { get; set; }
     public string? CallTrace { get; set; }
+
+    // ── ID 13: RegistryEvent (valor de registro modificado) ───────────────
+    public string? TargetObject { get; set; }      // ruta de la clave\valor de registro
+    public string? RegistryDetails { get; set; }    // valor escrito
 }

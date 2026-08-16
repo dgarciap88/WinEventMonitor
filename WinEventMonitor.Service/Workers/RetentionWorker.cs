@@ -6,6 +6,11 @@ namespace WinEventMonitor.Service.Workers;
 public class RetentionWorker(IServiceScopeFactory scopeFactory, IConfiguration config, ILogger<RetentionWorker> logger)
     : BackgroundService
 {
+    // VACUUM reescribe el fichero SQLite entero: solo merece la pena si de verdad
+    // se libero espacio, y como mucho una vez al dia aunque la purga corra cada hora.
+    private static readonly TimeSpan MinVacuumInterval = TimeSpan.FromDays(1);
+    private DateTime _lastVacuum = DateTime.MinValue;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Primera purga al arrancar (después de 1 min para no solapar con EnsureCreated)
@@ -42,13 +47,19 @@ public class RetentionWorker(IServiceScopeFactory scopeFactory, IConfiguration c
                 .Where(e => e.Timestamp < cutoff)
                 .ExecuteDeleteAsync(ct);
 
-            if (processes + network + dns > 0)
+            var deleted = processes + network + dns;
+            if (deleted > 0)
                 logger.LogInformation(
                     "Retención: eliminados {P} procesos, {N} red, {D} DNS anteriores a {Cutoff:yyyy-MM-dd}",
                     processes, network, dns, cutoff);
 
-            // VACUUM para liberar espacio en disco en SQLite
-            await db.Database.ExecuteSqlRawAsync("VACUUM;", ct);
+            // VACUUM para liberar espacio en disco: solo si se borro algo y no antes
+            // de MinVacuumInterval desde el ultimo, para no reescribir el fichero entero cada hora.
+            if (deleted > 0 && DateTime.UtcNow - _lastVacuum >= MinVacuumInterval)
+            {
+                await db.Database.ExecuteSqlRawAsync("VACUUM;", ct);
+                _lastVacuum = DateTime.UtcNow;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

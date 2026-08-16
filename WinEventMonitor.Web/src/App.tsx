@@ -104,7 +104,7 @@ export default function App() {
         ))}
       </nav>
       <main className="px-6 py-4">
-        {tab === 'dashboard'  && <DashboardPanel />}
+        {tab === 'dashboard'  && <DashboardPanel onNavigateToAlerts={() => handleTabChange('alerts')} />}
         {tab === 'system'     && <SystemPanel />}
         {tab === 'access'     && <AccessPanel />}
         {tab === 'processes'  && <ProcessTable />}

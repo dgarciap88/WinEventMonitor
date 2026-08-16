@@ -11,6 +11,7 @@ public class EventDbContext : DbContext
     public DbSet<NetworkEvent> NetworkEvents => Set<NetworkEvent>();
     public DbSet<DnsEvent> DnsEvents => Set<DnsEvent>();
     public DbSet<AlertEvent> AlertEvents => Set<AlertEvent>();
+    public DbSet<AlertException> AlertExceptions => Set<AlertException>();
     public DbSet<LogonEvent> LogonEvents => Set<LogonEvent>();
     public DbSet<SysmonAdvancedEvent> SysmonAdvancedEvents => Set<SysmonAdvancedEvent>();
 
@@ -41,6 +42,12 @@ public class EventDbContext : DbContext
         {
             e.HasIndex(a => a.Timestamp);
             e.HasIndex(a => a.Severity);
+            e.HasIndex(a => a.Status);
+        });
+
+        modelBuilder.Entity<AlertException>(e =>
+        {
+            e.HasIndex(x => x.Rule);
         });
 
         modelBuilder.Entity<LogonEvent>(e =>

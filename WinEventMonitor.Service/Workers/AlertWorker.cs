@@ -9,7 +9,11 @@ namespace WinEventMonitor.Service.Workers;
 /// Motor de detección de comportamientos sospechosos.
 /// Se ejecuta cada 60 s y aplica reglas sobre los eventos nuevos de la BD.
 /// </summary>
-public class AlertWorker(AlertService alertService, AlertRulesService rulesService, IServiceScopeFactory scopeFactory) : BackgroundService
+public class AlertWorker(
+    AlertService alertService,
+    AlertRulesService rulesService,
+    IServiceScopeFactory scopeFactory,
+    ILogger<AlertWorker> logger) : BackgroundService
 {
     private DateTime _lastScan = DateTime.UtcNow.AddMinutes(-2);
 
@@ -89,14 +93,19 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
             await CheckUncPathAsync(newProcs);
             await CheckShadowCopyDeletionAsync(newProcs);
             await CheckLolBinProxyAsync(db, newProcs);
-            // ── Sysmon avanzado (IDs 7, 8, 10) ───────────────────────────────
+            // ── Sysmon avanzado (IDs 7, 8, 10, 13) ───────────────────────────
             await CheckUnsignedImageAsync(newAdvanced.Where(e => e.EventId == 7).ToList());
             await CheckRemoteThreadAsync(newAdvanced.Where(e => e.EventId == 8).ToList());
             await CheckLsassAccessAsync(newAdvanced.Where(e => e.EventId == 10).ToList());
+            await CheckRegistryPersistenceAsync(newAdvanced.Where(e => e.EventId == 13).ToList());
+            // ── Fase 3: detección por línea de comandos (sin fuentes nuevas) ─
+            await CheckScheduledTaskAsync(newProcs);
+            await CheckNewServiceAsync(newProcs);
+            await CheckNewAdminAccountAsync(newProcs);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[AlertWorker] Error: {ex.Message}");
+            logger.LogError(ex, "Error en el escaneo de alertas");
         }
     }
 
@@ -240,6 +249,7 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
                 Pid         = ev.Pid,
                 ProcessName = ev.ProcessName,
                 Details     = $"Usuario: {ev.UserName} | Proto: {ev.Protocol} | Dest: {ev.DestinationIp}:{ev.DestinationPort} ({portName})",
+                RelatedIp   = ev.DestinationIp,
                 MitreTechnique = "T1021",
             });
         }
@@ -273,6 +283,7 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
                 Pid         = proc.Pid,
                 ProcessName = proc.ProcessName,
                 Details        = $"Destino: {net.DestinationIp}:{net.DestinationPort} | CmdLine: {proc.CommandLine}",
+                RelatedIp      = net.DestinationIp,
                 MitreTechnique = "T1059",
             });
         }
@@ -303,6 +314,7 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
                 Pid         = null,
                 ProcessName = null,
                 Details     = $"IP atacante: {att.ip} | Intentos: {att.count} en ventana de 5 min",
+                RelatedIp   = att.ip,
                 MitreTechnique = "T1110",
             });
         }
@@ -338,6 +350,7 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
                 Pid         = null,
                 ProcessName = null,
                 Details     = $"Usuario: {ev.UserName} | IP: {ev.SourceIp}:{ev.SourcePort} | Estación: {ev.WorkstationName}",
+                RelatedIp   = ev.SourceIp,
                 MitreTechnique = "T1021.001",
             });
         }
@@ -581,6 +594,112 @@ public class AlertWorker(AlertService alertService, AlertRulesService rulesServi
                 ProcessName    = ev.SourceProcessName,
                 Details        = $"Fuente: {ev.SourceProcessName} (PID {ev.SourcePid}) | GrantedAccess: {ev.GrantedAccess} | CallTrace: {(ev.CallTrace?.Length > 200 ? ev.CallTrace[..200] + "…" : ev.CallTrace)}",
                 MitreTechnique = "T1003.001",
+            });
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // FASE 3 — PERSISTENCIA (reglas 17-20)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Regla 17: Clave de registro de autoarranque modificada (Sysmon ID 13) ─
+    private async Task CheckRegistryPersistenceAsync(List<Models.SysmonAdvancedEvent> events)
+    {
+        if (!rulesService.IsEnabled(17)) return;
+        foreach (var ev in events)
+        {
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(17, "High"),
+                Rule           = "Persistencia – Clave de autoarranque",
+                Description    = $"{ev.SourceProcessName} modificó una clave de autoarranque",
+                Pid            = ev.SourcePid,
+                ProcessName    = ev.SourceProcessName,
+                Details        = $"Clave: {ev.TargetObject} | Valor: {ev.RegistryDetails}",
+                MitreTechnique = "T1547.001",
+            });
+        }
+    }
+
+    private static readonly string[] ScheduledTaskKeywords = ["schtasks /create", "schtasks.exe /create", "register-scheduledtask"];
+    private static readonly string[] NewServiceKeywords     = ["sc create", "sc.exe create", "new-service"];
+    private static readonly string[] NewAdminKeywords       =
+        ["net user", "net localgroup administrators", "net.exe user", "net1 user", "new-localuser", "add-localgroupmember"];
+
+    // ── Regla 18: Tarea programada creada por línea de comandos ──────────────
+    private async Task CheckScheduledTaskAsync(List<Models.ProcessEvent> procs)
+    {
+        if (!rulesService.IsEnabled(18)) return;
+        foreach (var ev in procs)
+        {
+            var cmd = ev.CommandLine;
+            if (cmd == null) continue;
+            var kw = ScheduledTaskKeywords.FirstOrDefault(k => cmd.Contains(k, StringComparison.OrdinalIgnoreCase));
+            if (kw == null) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(18, "Medium"),
+                Rule           = "Persistencia – Tarea programada nueva",
+                Description    = $"{ev.ProcessName} creó una tarea programada",
+                Pid            = ev.Pid,
+                ProcessName    = ev.ProcessName,
+                Details        = $"CmdLine: {cmd}",
+                MitreTechnique = "T1053.005",
+            });
+        }
+    }
+
+    // ── Regla 19: Servicio de Windows creado por línea de comandos ───────────
+    private async Task CheckNewServiceAsync(List<Models.ProcessEvent> procs)
+    {
+        if (!rulesService.IsEnabled(19)) return;
+        foreach (var ev in procs)
+        {
+            var cmd = ev.CommandLine;
+            if (cmd == null) continue;
+            var kw = NewServiceKeywords.FirstOrDefault(k => cmd.Contains(k, StringComparison.OrdinalIgnoreCase));
+            if (kw == null) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(19, "Medium"),
+                Rule           = "Persistencia – Servicio de Windows nuevo",
+                Description    = $"{ev.ProcessName} creó un servicio de Windows",
+                Pid            = ev.Pid,
+                ProcessName    = ev.ProcessName,
+                Details        = $"CmdLine: {cmd}",
+                MitreTechnique = "T1543.003",
+            });
+        }
+    }
+
+    // ── Regla 20: Cuenta local o de administrador nueva ───────────────────────
+    private async Task CheckNewAdminAccountAsync(List<Models.ProcessEvent> procs)
+    {
+        if (!rulesService.IsEnabled(20)) return;
+        foreach (var ev in procs)
+        {
+            var cmd = ev.CommandLine;
+            if (cmd == null) continue;
+            var kw = NewAdminKeywords.FirstOrDefault(k => cmd.Contains(k, StringComparison.OrdinalIgnoreCase));
+            if (kw == null) continue;
+            // Reducir ruido: solo nos interesa /add (crear usuario o añadir al grupo), no /delete ni consultas
+            if (cmd.Contains("/delete", StringComparison.OrdinalIgnoreCase)) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(20, "High"),
+                Rule           = "Cuenta – Usuario o administrador nuevo",
+                Description    = $"{ev.ProcessName} gestionó cuentas de usuario o el grupo de administradores",
+                Pid            = ev.Pid,
+                ProcessName    = ev.ProcessName,
+                Details        = $"CmdLine: {cmd}",
+                MitreTechnique = "T1136.001",
             });
         }
     }

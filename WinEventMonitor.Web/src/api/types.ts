@@ -133,6 +133,15 @@ export interface AlertEvent {
   processName: string | null;
   details: string | null;
   mitreTechnique: string | null;
+  status: 'New' | 'Reviewed' | 'Dismissed' | 'Trusted';
+  relatedIp: string | null;
+}
+
+export interface AlertException {
+  id: string;
+  rule: string;
+  processName: string | null;
+  createdAt: string;
 }
 
 export interface StatsCountItem { count: number; }

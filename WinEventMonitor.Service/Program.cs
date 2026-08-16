@@ -30,6 +30,20 @@ Log.Logger = new LoggerConfiguration()
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 
+// Conecta Serilog al pipeline de ILogger<T> usado por los Workers (sin esto,
+// el fichero service-.log nunca recibe nada y los errores quedan invisibles).
+builder.Host.UseSerilog();
+
+// Red de seguridad: sin esto, una excepcion no capturada en un hilo de fondo
+// (p.ej. un event handler async void) mata el proceso sin dejar rastro en el log.
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+    Log.Fatal(e.ExceptionObject as Exception, "Excepcion no controlada, terminando: {IsTerminating}", e.IsTerminating);
+TaskScheduler.UnobservedTaskException += (_, e) =>
+{
+    Log.Error(e.Exception, "Tarea con excepcion no observada");
+    e.SetObserved();
+};
+
 // --- Soporte servicio de Windows (no-op en consola/dev) ---
 builder.Host.UseWindowsService();
 
@@ -60,7 +74,7 @@ builder.Services.AddSingleton<SystemHealthService>();
 port = builder.Configuration.GetValue<int>("EventMonitor:Port", 51847);
 builder.Services.AddCors(options =>
     options.AddPolicy("LocalOnly", policy =>
-        policy.WithOrigins("http://localhost:5173", "http://localhost:5174", $"http://localhost:{port}", $"http://127.0.0.1:{port}", "http://wem.local")
+        policy.WithOrigins("http://localhost:5173", "http://localhost:5174", $"http://localhost:{port}", $"http://127.0.0.1:{port}")
               .WithHeaders("X-Api-Key", "Content-Type")
               .WithMethods("GET", "POST", "DELETE", "PATCH")));
 
@@ -84,6 +98,9 @@ builder.Services.AddHostedService<LogonEventWorker>();
 // --- Kestrel: solo loopback, puerto configurable ---
 builder.WebHost.ConfigureKestrel(k =>
 {
+    // CertificatePassword no se commitea con valor real: si se usa un certificado,
+    // la password se aporta via variable de entorno (EventMonitor__CertificatePassword)
+    // o un appsettings local fuera del control de versiones.
     var certPath = builder.Configuration["EventMonitor:CertificatePath"];
     var certPass = builder.Configuration["EventMonitor:CertificatePassword"];
 
@@ -134,6 +151,29 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw(
             "ALTER TABLE AlertEvents ADD COLUMN MitreTechnique TEXT NULL");
 
+    // Columna Status (New/Reviewed/Dismissed/Trusted) — mejoras funcionales, Fase 1
+    if (!alertCols.Contains("Status"))
+        db.Database.ExecuteSqlRaw(
+            "ALTER TABLE AlertEvents ADD COLUMN Status TEXT NOT NULL DEFAULT 'New'");
+
+    // Columna RelatedIp — mejoras funcionales, Fase 4: permite ofrecer "Bloquear IP"
+    if (!alertCols.Contains("RelatedIp"))
+        db.Database.ExecuteSqlRaw(
+            "ALTER TABLE AlertEvents ADD COLUMN RelatedIp TEXT NULL");
+
+    // Tabla AlertExceptions — mejoras funcionales, Fase 1: permite silenciar una
+    // regla para un proceso concreto (o todos) sin desactivar la regla entera.
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS AlertExceptions (
+            Id TEXT NOT NULL PRIMARY KEY,
+            Rule TEXT NOT NULL,
+            ProcessName TEXT NULL,
+            CreatedAt TEXT NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw(
+        "CREATE INDEX IF NOT EXISTS IX_AlertExceptions_Rule ON AlertExceptions (Rule)");
+
     // Tabla SysmonAdvancedEvents (Sysmon IDs 7, 8, 10)
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS SysmonAdvancedEvents (
@@ -165,6 +205,17 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw(
         "CREATE INDEX IF NOT EXISTS IX_SysmonAdvancedEvents_TargetPid ON SysmonAdvancedEvents (TargetPid)");
 
+    // Columnas para Sysmon ID 13 (RegistryEvent) — mejoras funcionales, Fase 3
+    var sysmonAdvCols = db.Database
+        .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('SysmonAdvancedEvents')")
+        .ToList();
+    if (!sysmonAdvCols.Contains("TargetObject"))
+        db.Database.ExecuteSqlRaw(
+            "ALTER TABLE SysmonAdvancedEvents ADD COLUMN TargetObject TEXT NULL");
+    if (!sysmonAdvCols.Contains("RegistryDetails"))
+        db.Database.ExecuteSqlRaw(
+            "ALTER TABLE SysmonAdvancedEvents ADD COLUMN RegistryDetails TEXT NULL");
+
     // Tabla LogonEvents
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS LogonEvents (
@@ -195,6 +246,17 @@ using (var scope = app.Services.CreateScope())
 // --- Inicializar API Key al arrancar ---
 app.Services.GetRequiredService<ApiKeyService>().GetOrCreateKey();
 
+// Sin esto, una excepcion no capturada en un endpoint devuelve la pagina de
+// error por defecto (o un 500 vacio) y no queda registrada en ningun sitio.
+app.UseExceptionHandler(handler => handler.Run(async context =>
+{
+    var ex = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    Log.Error(ex, "Excepcion no controlada en {Path}", context.Request.Path);
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsync("""{"error":"internal_error"}""");
+}));
+
 app.UseCors("LocalOnly");
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -215,4 +277,16 @@ app.MapVirusTotalRoutes();
 // Fallback: devuelve index.html para que React Router funcione
 app.MapFallbackToFile("index.html");
 
-app.Run();
+try
+{
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "El servicio termino de forma inesperada");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}

@@ -35,6 +35,12 @@ public sealed class AlertRulesService
         new(14, "DLL sin firma cargada",                    "Medium", true, "Imagen no firmada cargada por un proceso (Sysmon ID 7)"),
         new(15, "CreateRemoteThread – Inyección de hilo",  "High",   true, "Hilo inyectado en proceso externo (Sysmon ID 8)"),
         new(16, "Acceso a LSASS – Volcado de credenciales","High",   true, "Proceso accediendo a lsass.exe con permisos de lectura (Sysmon ID 10)"),
+        // ── Fase 3: persistencia y manipulación de auditoría ──────────────────────
+        new(17, "Persistencia – Clave de autoarranque",     "High", true, "Se añadió una entrada a una clave de registro de autoarranque (Run/RunOnce/Winlogon)"),
+        new(18, "Persistencia – Tarea programada nueva",    "Medium", true, "Se creó una tarea programada mediante schtasks"),
+        new(19, "Persistencia – Servicio de Windows nuevo", "Medium", true, "Se creó un servicio de Windows mediante sc.exe o New-Service"),
+        new(20, "Cuenta – Usuario o administrador nuevo",   "High", true, "Se creó una cuenta local o se añadió un usuario al grupo de administradores"),
+        new(21, "Auditoría – Registro de seguridad borrado","High", true, "Se borró el registro de eventos de seguridad de Windows (Event ID 1102)"),
     ];
 
     public AlertRulesService()

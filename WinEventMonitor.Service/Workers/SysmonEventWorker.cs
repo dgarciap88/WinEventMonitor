@@ -10,6 +10,9 @@ public class SysmonEventWorker : BackgroundService
     private readonly ILogger<SysmonEventWorker> _logger;
     private const string SysmonChannel = "Microsoft-Windows-Sysmon/Operational";
 
+    private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(2);
+
     public SysmonEventWorker(IServiceScopeFactory scopeFactory, ILogger<SysmonEventWorker> logger)
     {
         _scopeFactory = scopeFactory;
@@ -19,13 +22,35 @@ public class SysmonEventWorker : BackgroundService
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // EventLogWatcher es sincrono internamente, lo corremos en un hilo dedicado
-        return Task.Run(() => RunWatcher(stoppingToken), stoppingToken);
+        return Task.Run(() => RunWithRetry(stoppingToken), stoppingToken);
+    }
+
+    // Si RunWatcher termina sin que se haya pedido la cancelacion, fue por un
+    // fallo (canal no encontrado, sin permisos, error inesperado). Sin este
+    // bucle, la ingesta de Sysmon se paraba para siempre hasta reiniciar el
+    // servicio entero.
+    private void RunWithRetry(CancellationToken ct)
+    {
+        var delay = InitialRetryDelay;
+        while (!ct.IsCancellationRequested)
+        {
+            var startedAt = DateTime.UtcNow;
+            RunWatcher(ct);
+            if (ct.IsCancellationRequested) break;
+
+            delay = DateTime.UtcNow - startedAt > delay
+                ? InitialRetryDelay
+                : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, MaxRetryDelay.TotalSeconds));
+
+            _logger.LogWarning("SysmonEventWorker se detuvo inesperadamente, reintentando en {Delay}s", delay.TotalSeconds);
+            ct.WaitHandle.WaitOne(delay);
+        }
     }
 
     private void RunWatcher(CancellationToken ct)
     {
         var query = new EventLogQuery(SysmonChannel, PathType.LogName,
-            "*[System[(EventID=1 or EventID=3 or EventID=5 or EventID=7 or EventID=8 or EventID=10 or EventID=22)]]");
+            "*[System[(EventID=1 or EventID=3 or EventID=5 or EventID=7 or EventID=8 or EventID=10 or EventID=13 or EventID=22)]]");
         EventLogWatcher? watcher = null;
 
         try
@@ -92,6 +117,10 @@ public class SysmonEventWorker : BackgroundService
                 case 10:
                     var procAccess = ProcessAccessParser.FromSysmon(e.EventRecord);
                     if (procAccess is not null) { db.SysmonAdvancedEvents.Add(procAccess); await db.SaveChangesAsync(); }
+                    break;
+                case 13:
+                    var registry = RegistryEventParser.FromSysmon(e.EventRecord);
+                    if (registry is not null) { db.SysmonAdvancedEvents.Add(registry); await db.SaveChangesAsync(); }
                     break;
             }
         }

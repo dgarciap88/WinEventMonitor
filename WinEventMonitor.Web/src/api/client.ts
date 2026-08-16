@@ -106,9 +106,10 @@ export async function removeTrustedDomain(domain: string): Promise<string[]> {
 
 export async function getAlerts(
   page = 1,
-  pageSize = 50
+  pageSize = 50,
+  status?: string
 ): Promise<{ data: AlertEvent[]; total: number; page: number; pageSize: number }> {
-  const { data } = await client.get('/api/alerts', { params: { page, pageSize } });
+  const { data } = await client.get('/api/alerts', { params: { page, pageSize, status } });
   return data;
 }
 
@@ -117,8 +118,23 @@ export async function getAlertCount(): Promise<number> {
   return data.count as number;
 }
 
+export interface AlertPendingSummary { high: number; medium: number; low: number; }
+
+export async function getAlertPendingSummary(): Promise<AlertPendingSummary> {
+  const { data } = await client.get('/api/alerts/pending-summary');
+  return data;
+}
+
 export async function clearAlerts(): Promise<void> {
   await client.delete('/api/alerts');
+}
+
+export async function updateAlertStatus(
+  id: string,
+  status: 'New' | 'Reviewed' | 'Dismissed' | 'Trusted'
+): Promise<AlertEvent> {
+  const { data } = await client.patch(`/api/alerts/${id}`, { status });
+  return data;
 }
 
 // ─── Estadísticas / Dashboard ─────────────────────────────────────

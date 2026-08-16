@@ -95,7 +95,7 @@ public class SysmonSetupService(IServiceScopeFactory scopeFactory, IConfiguratio
         {
             // Marca que nuestra config fue aplicada
             File.WriteAllText(AppliedFlagPath, DateTime.UtcNow.ToString("O"));
-            return (true, "Configuración Sysmon aplicada correctamente (IDs 1, 3, 5, 7, 8, 10, 22).");
+            return (true, "Configuración Sysmon aplicada correctamente (IDs 1, 3, 5, 7, 8, 10, 13, 22).");
         }
 
         return (false, $"Error al aplicar configuración Sysmon (exit {exitCode}): {output.Trim()}");
@@ -242,6 +242,16 @@ public class SysmonSetupService(IServiceScopeFactory scopeFactory, IConfiguratio
             <ProcessAccess onmatch="include">
               <TargetImage condition="end with">lsass.exe</TargetImage>
             </ProcessAccess>
+
+            <!-- ID 13: RegistryEvent — solo claves de autoarranque (persistencia) -->
+            <RegistryEvent onmatch="include">
+              <TargetObject condition="end with">\CurrentVersion\Run</TargetObject>
+              <TargetObject condition="contains">\CurrentVersion\Run\</TargetObject>
+              <TargetObject condition="end with">\CurrentVersion\RunOnce</TargetObject>
+              <TargetObject condition="contains">\CurrentVersion\RunOnce\</TargetObject>
+              <TargetObject condition="contains">\Winlogon\Userinit</TargetObject>
+              <TargetObject condition="contains">\Winlogon\Shell</TargetObject>
+            </RegistryEvent>
 
           </EventFiltering>
         </Sysmon>

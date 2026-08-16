@@ -1,7 +1,61 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getStats } from '../api/client';
+import { getStats, getAlertPendingSummary } from '../api/client';
+import type { AlertPendingSummary } from '../api/client';
 import type { Stats } from '../api/types';
 import { Timestamp } from './Timestamp';
+
+/** Resumen en lenguaje llano: lo primero que ve alguien sin conocimientos tecnicos. */
+function PlainLanguageSummary({ onNavigateToAlerts }: { onNavigateToAlerts?: () => void }) {
+  const [summary, setSummary] = useState<AlertPendingSummary | null>(null);
+
+  const load = useCallback(() => {
+    getAlertPendingSummary().then(setSummary).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  if (!summary) return null;
+
+  const { high, medium } = summary;
+
+  if (high === 0 && medium === 0) {
+    return (
+      <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 flex items-center gap-2">
+        <span className="text-xl">✅</span>
+        <span className="text-sm font-medium text-green-800">Todo tranquilo. No hay nada que requiera tu atención ahora mismo.</span>
+      </div>
+    );
+  }
+
+  const pieces: string[] = [];
+  if (high > 0)   pieces.push(`${high} de alta importancia`);
+  if (medium > 0) pieces.push(`${medium} de importancia media`);
+
+  const tone = high > 0
+    ? { bg: 'bg-red-50 border-red-200', text: 'text-red-800', icon: '🔴' }
+    : { bg: 'bg-orange-50 border-orange-200', text: 'text-orange-800', icon: '🟠' };
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${tone.bg}`}>
+      <span className={`text-sm font-medium flex items-center gap-2 ${tone.text}`}>
+        <span className="text-xl">{tone.icon}</span>
+        {pieces.join(' y ')} — esto necesita tu atención.
+      </span>
+      {onNavigateToAlerts && (
+        <button
+          onClick={onNavigateToAlerts}
+          className="text-xs font-semibold bg-white border border-current px-3 py-1 rounded hover:bg-gray-50"
+        >
+          Ver alertas →
+        </button>
+      )}
+    </div>
+  );
+}
 
 const SEVERITY_COLOR: Record<string, string> = {
   High:   'bg-red-100 text-red-700 border-red-300',
@@ -72,7 +126,7 @@ function ActivityChart({ data }: { data: Stats['activityByHour'] }) {
   );
 }
 
-export function DashboardPanel() {
+export function DashboardPanel({ onNavigateToAlerts }: { onNavigateToAlerts?: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +166,8 @@ export function DashboardPanel() {
 
   return (
     <div className="space-y-5">
+
+      <PlainLanguageSummary onNavigateToAlerts={onNavigateToAlerts} />
 
       {/* Cabecera */}
       <div className="flex items-center justify-between">

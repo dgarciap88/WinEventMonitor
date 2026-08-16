@@ -18,4 +18,13 @@ public class AlertEvent
     public string? ProcessName { get; set; }
     public string? Details { get; set; }
     public string? MitreTechnique { get; set; }
+
+    /// <summary>IP relacionada con la alerta, cuando aplica (movimiento lateral,
+    /// reverse shell, fuerza bruta, RDP). Permite ofrecer "Bloquear IP" sin
+    /// tener que parsear el texto libre de Details.</summary>
+    public string? RelatedIp { get; set; }
+
+    /// <summary>"New" | "Reviewed" | "Dismissed" | "Trusted". "Trusted" implica
+    /// que existe una AlertException para Rule+ProcessName.</summary>
+    public string Status { get; set; } = "New";
 }

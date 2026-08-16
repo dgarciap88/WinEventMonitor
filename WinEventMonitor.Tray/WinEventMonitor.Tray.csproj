@@ -27,7 +27,11 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
     <PackageReference Include="Serilog" Version="4.3.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
+    <!-- Pinned a 9.0.3 (no 10.0.9): Tray y Service comparten la misma carpeta publish/,
+         y una v10.x aqui sobrescribe el ServiceController.dll que Service resuelve en 9.x,
+         dejando un binario que pide System.Diagnostics.EventLog v10.0.0.0 inexistente y
+         provocando un FileNotFoundException al arrancar el servicio de Windows. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.3" />
   </ItemGroup>
 
 </Project>

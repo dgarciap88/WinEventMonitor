@@ -8,10 +8,12 @@ namespace WinEventMonitor.Service.Security;
 public class ApiKeyService
 {
     private readonly string _keyFilePath;
+    private readonly ILogger<ApiKeyService> _logger;
     private string? _cachedKey;
 
-    public ApiKeyService(IConfiguration config)
+    public ApiKeyService(IConfiguration config, ILogger<ApiKeyService> logger)
     {
+        _logger = logger;
         _keyFilePath = config["EventMonitor:ApiKeyPath"]
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                "WinEventMonitor", "api.key");
@@ -26,7 +28,7 @@ public class ApiKeyService
 
         if (!File.Exists(_keyFilePath))
         {
-            var newKey = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+            var newKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             File.WriteAllText(_keyFilePath, newKey);
             RestrictFilePermissions(_keyFilePath);
         }
@@ -45,7 +47,7 @@ public class ApiKeyService
                && provided.Length == expected.Length;
     }
 
-    private static void RestrictFilePermissions(string path)
+    private void RestrictFilePermissions(string path)
     {
         try
         {
@@ -65,9 +67,12 @@ public class ApiKeyService
 
             fi.SetAccessControl(acl);
         }
-        catch
+        catch (Exception ex)
         {
-            // En entornos sin soporte de ACL (p.ej. FAT32) se ignora
+            // En entornos sin soporte de ACL (p.ej. FAT32) esto es esperable y benigno,
+            // pero si ocurre en NTFS el fichero puede quedar legible por cualquier
+            // usuario del equipo, asi que se deja constancia en vez de tragarselo.
+            _logger.LogWarning(ex, "No se pudieron restringir permisos de {Path}", path);
         }
     }
 }

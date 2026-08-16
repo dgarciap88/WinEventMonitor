@@ -14,6 +14,9 @@ public class LogonEventWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LogonEventWorker> _logger;
 
+    private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(2);
+
     public LogonEventWorker(IServiceScopeFactory scopeFactory, ILogger<LogonEventWorker> logger)
     {
         _scopeFactory = scopeFactory;
@@ -21,7 +24,25 @@ public class LogonEventWorker : BackgroundService
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.Run(() => RunWatcher(stoppingToken), stoppingToken);
+        Task.Run(() => RunWithRetry(stoppingToken), stoppingToken);
+
+    private void RunWithRetry(CancellationToken ct)
+    {
+        var delay = InitialRetryDelay;
+        while (!ct.IsCancellationRequested)
+        {
+            var startedAt = DateTime.UtcNow;
+            RunWatcher(ct);
+            if (ct.IsCancellationRequested) break;
+
+            delay = DateTime.UtcNow - startedAt > delay
+                ? InitialRetryDelay
+                : TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, MaxRetryDelay.TotalSeconds));
+
+            _logger.LogWarning("LogonEventWorker se detuvo inesperadamente, reintentando en {Delay}s", delay.TotalSeconds);
+            ct.WaitHandle.WaitOne(delay);
+        }
+    }
 
     private void RunWatcher(CancellationToken ct)
     {

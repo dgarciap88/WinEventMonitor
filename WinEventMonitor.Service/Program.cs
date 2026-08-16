@@ -94,6 +94,8 @@ builder.Services.AddHostedService<RetentionWorker>();
 builder.Services.AddHostedService<AlertWorker>();
 // Ingesta de eventos de logon (4624/4625): acceso remoto, fuerza bruta
 builder.Services.AddHostedService<LogonEventWorker>();
+// Historial largo de CPU/RAM/disco/red para graficos de tendencia
+builder.Services.AddHostedService<ResourceHistoryWorker>();
 
 // --- Kestrel: solo loopback, puerto configurable ---
 builder.WebHost.ConfigureKestrel(k =>
@@ -160,6 +162,24 @@ using (var scope = app.Services.CreateScope())
     if (!alertCols.Contains("RelatedIp"))
         db.Database.ExecuteSqlRaw(
             "ALTER TABLE AlertEvents ADD COLUMN RelatedIp TEXT NULL");
+
+    // Tabla ResourceSamples — mejoras funcionales, Fase 5: historial largo de
+    // CPU/RAM/disco/red (el de SystemHealthService es en memoria, solo 2 min).
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS ResourceSamples (
+            Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            Timestamp TEXT NOT NULL,
+            CpuPct REAL NOT NULL,
+            RamPct REAL NOT NULL,
+            RamUsedMb INTEGER NOT NULL,
+            RamTotalMb INTEGER NOT NULL,
+            DiskUsedPct REAL NOT NULL,
+            NetSentBytesSec INTEGER NOT NULL,
+            NetRecvBytesSec INTEGER NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw(
+        "CREATE INDEX IF NOT EXISTS IX_ResourceSamples_Timestamp ON ResourceSamples (Timestamp)");
 
     // Tabla AlertExceptions — mejoras funcionales, Fase 1: permite silenciar una
     // regla para un proceso concreto (o todos) sin desactivar la regla entera.

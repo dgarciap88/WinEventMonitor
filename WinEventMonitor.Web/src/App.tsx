@@ -6,6 +6,7 @@ import { SetupPanel } from './components/SetupPanel';
 import { ProcessTreeView } from './components/ProcessTreeView';
 import { AlertsPanel } from './components/AlertsPanel';
 import { DashboardPanel } from './components/DashboardPanel';
+import { TimelinePanel } from './components/TimelinePanel';
 import { SystemPanel } from './components/SystemPanel';
 import { AccessPanel } from './components/AccessPanel';
 import { ToastProvider } from './components/ToastProvider';
@@ -13,10 +14,11 @@ import { DateRangeProvider, DateRangeWidget } from './context/DateRangeContext';
 import { GlobalSearch } from './components/GlobalSearch';
 import { getAlertCount } from './api/client';
 
-type Tab = 'dashboard' | 'system' | 'access' | 'processes' | 'network' | 'dns' | 'tree' | 'alerts' | 'setup';
+type Tab = 'dashboard' | 'timeline' | 'system' | 'access' | 'processes' | 'network' | 'dns' | 'tree' | 'alerts' | 'setup';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: '📊 Resumen' },
+  { id: 'timeline',  label: '🕐 Cronología' },
   { id: 'system',    label: '💻 Sistema' },
   { id: 'access',    label: '🔐 Accesos' },
   { id: 'processes', label: 'Procesos' },
@@ -105,6 +107,7 @@ export default function App() {
       </nav>
       <main className="px-6 py-4">
         {tab === 'dashboard'  && <DashboardPanel onNavigateToAlerts={() => handleTabChange('alerts')} />}
+        {tab === 'timeline'   && <TimelinePanel />}
         {tab === 'system'     && <SystemPanel />}
         {tab === 'access'     && <AccessPanel />}
         {tab === 'processes'  && <ProcessTable />}

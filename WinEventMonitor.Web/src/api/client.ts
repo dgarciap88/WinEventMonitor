@@ -13,6 +13,8 @@ import type {
   Stats,
   SystemSnapshot,
   HistoryPoint,
+  ResourceSample,
+  TimelineItem,
   LogonEvent,
   LogonFilters,
   LogonSummary,
@@ -153,6 +155,16 @@ export async function getSystemHealth(): Promise<SystemSnapshot> {
 
 export async function getSystemHistory(): Promise<HistoryPoint[]> {
   const { data } = await client.get('/api/system/history');
+  return data;
+}
+
+export async function getSystemHistoryLong(range: '1h' | '24h' | '7d'): Promise<ResourceSample[]> {
+  const { data } = await client.get('/api/system/history-long', { params: { range } });
+  return data;
+}
+
+export async function getUnifiedTimeline(range: '1h' | '6h' | '24h'): Promise<TimelineItem[]> {
+  const { data } = await client.get('/api/timeline/unified', { params: { range } });
   return data;
 }
 

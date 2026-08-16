@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSystemHealth, getSystemHistory } from '../api/client';
-import type { SystemSnapshot, HistoryPoint } from '../api/types';
+import { getSystemHealth, getSystemHistory, getSystemHistoryLong } from '../api/client';
+import type { SystemSnapshot, HistoryPoint, ResourceSample } from '../api/types';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -8,6 +8,15 @@ function fmtBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B/s`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB/s`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
+function fmtUptime(totalSeconds: number): string {
+  const days  = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const mins  = Math.floor((totalSeconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
 }
 
 // ─── Mini barra de progreso ────────────────────────────────────────────────
@@ -108,6 +117,123 @@ function SparklinePanel() {
   );
 }
 
+// ─── Grafico de tendencia con eje temporal (para el historial largo) ──────
+
+function TrendLine({
+  points, color, formatY,
+}: {
+  points: { t: number; v: number }[];
+  color: string;
+  formatY: (v: number) => string;
+}) {
+  if (points.length < 2) {
+    return <div className="h-14 flex items-center text-xs text-gray-300">Sin datos suficientes todavía</div>;
+  }
+  const W = 800, H = 56, pad = 4;
+  const minT = points[0].t, maxT = points[points.length - 1].t;
+  const maxV = Math.max(...points.map(p => p.v), 1);
+  const x = (t: number) => pad + ((t - minT) / (maxT - minT || 1)) * (W - pad * 2);
+  const y = (v: number) => H - pad - (v / maxV) * (H - pad * 2);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' ');
+  const last = points[points.length - 1].v;
+
+  return (
+    <div className="flex items-center gap-3">
+      <svg viewBox={`0 0 ${W} ${H}`} className="flex-1 overflow-visible" preserveAspectRatio="none">
+        <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      <span className="text-xs font-mono text-gray-700 w-16 text-right flex-shrink-0">{formatY(last)}</span>
+    </div>
+  );
+}
+
+const RANGES = [
+  { id: '1h',  label: '1 h' },
+  { id: '24h', label: '24 h' },
+  { id: '7d',  label: '7 días' },
+] as const;
+type Range = typeof RANGES[number]['id'];
+
+function LongHistoryChart() {
+  const [range, setRange] = useState<Range>('24h');
+  const [samples, setSamples] = useState<ResourceSample[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    getSystemHistoryLong(range)
+      .then(setSamples)
+      .catch(() => setSamples([]))
+      .finally(() => setLoading(false));
+    const id = setInterval(() => getSystemHistoryLong(range).then(setSamples).catch(() => {}), 60_000);
+    return () => clearInterval(id);
+  }, [range]);
+
+  const toPoints = (sel: (s: ResourceSample) => number) =>
+    samples.map(s => ({ t: new Date(s.timestamp).getTime(), v: sel(s) }));
+
+  const fmtLabel = (ts: number) => {
+    const d = new Date(ts);
+    return range === '7d'
+      ? d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
+      : d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-4">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm font-semibold text-gray-700">Tendencia</span>
+        <div className="flex gap-1">
+          {RANGES.map(r => (
+            <button
+              key={r.id}
+              onClick={() => setRange(r.id)}
+              className={`text-xs px-2 py-1 rounded border ${
+                range === r.id ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && samples.length === 0 ? (
+        <p className="text-xs text-gray-400 py-4 text-center">Cargando…</p>
+      ) : samples.length === 0 ? (
+        <p className="text-xs text-gray-400 py-4 text-center">Todavía no hay suficiente historial para este rango.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-12 flex-shrink-0">CPU</span>
+            <TrendLine points={toPoints(s => s.cpuPct)} color="#3b82f6" formatY={v => `${v.toFixed(0)}%`} />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-12 flex-shrink-0">RAM</span>
+            <TrendLine points={toPoints(s => s.ramPct)} color="#10b981" formatY={v => `${v.toFixed(0)}%`} />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-12 flex-shrink-0">Disco</span>
+            <TrendLine points={toPoints(s => s.diskUsedPct)} color="#6366f1" formatY={v => `${v.toFixed(0)}%`} />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-12 flex-shrink-0">Red ↓</span>
+            <TrendLine points={toPoints(s => s.netRecvBytesSec)} color="#f59e0b" formatY={fmtBytes} />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-12 flex-shrink-0">Red ↑</span>
+            <TrendLine points={toPoints(s => s.netSentBytesSec)} color="#ec4899" formatY={fmtBytes} />
+          </div>
+          <div className="flex justify-between text-[10px] text-gray-400 pl-[60px]">
+            <span>{fmtLabel(new Date(samples[0].timestamp).getTime())}</span>
+            <span>{fmtLabel(new Date(samples[samples.length - 1].timestamp).getTime())}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────
 
 export function SystemPanel() {
@@ -163,11 +289,14 @@ export function SystemPanel() {
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-gray-700">Salud del Sistema</h2>
         <span className="text-xs text-gray-400">
-          Actualizado: {lastUpdated} · refresco 3 s
+          En marcha desde hace {fmtUptime(snap.uptimeSeconds)} · Actualizado: {lastUpdated} · refresco 3 s
         </span>
       </div>
 
-      {/* Sparklines históricos */}
+      {/* Tendencia (historial largo, persistido) */}
+      <LongHistoryChart />
+
+      {/* Sparklines en vivo (2 min) */}
       <SparklinePanel />
 
       {/* KPI cards */}
@@ -186,6 +315,14 @@ export function SystemPanel() {
           pct={ramPct}
           barColor={ramColor}
         />
+        <div className="bg-white rounded-xl border shadow-sm p-4 flex flex-col gap-2">
+          <span className="text-sm text-gray-500 font-medium">Red</span>
+          <div className="flex justify-between text-sm">
+            <span className="text-amber-600">↓ {fmtBytes(snap.net.bytesRecvSec)}</span>
+            <span className="text-pink-600">↑ {fmtBytes(snap.net.bytesSentSec)}</span>
+          </div>
+          <span className="text-xs text-gray-400">Interfaces activas, excluye loopback</span>
+        </div>
         {snap.disk.map(d => {
           const usedGb = d.totalGb - d.freeGb;
           const diskPct = d.totalGb > 0 ? (usedGb / d.totalGb) * 100 : 0;

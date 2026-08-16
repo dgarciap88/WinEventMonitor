@@ -88,19 +88,17 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 /** Gráfico de barras verticales para actividad por hora (últimas 24 h) */
 function ActivityChart({ data }: { data: Stats['activityByHour'] }) {
   const maxVal = Math.max(...data.flatMap(d => [d.processes, d.network]), 1);
-  const now = new Date().getUTCHours();
 
   return (
     <div className="flex items-end gap-0.5 h-24">
       {data.map(d => {
-        const hLabel = `${String(d.hour).padStart(2, '0')}:00`;
-        const isCurrent = d.hour === now;
+        const isCurrent = d.hourOffset === 0;
         return (
-          <div key={d.hour} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+          <div key={d.hourOffset} className="flex-1 flex flex-col items-center gap-0.5 group relative">
             {/* tooltip */}
             <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 z-10 hidden group-hover:flex
                             flex-col bg-gray-800 text-white text-[10px] rounded px-1.5 py-1 whitespace-nowrap shadow">
-              <span>{hLabel}</span>
+              <span>{d.label}</span>
               <span className="text-blue-300">Proc: {d.processes}</span>
               <span className="text-green-300">Red: {d.network}</span>
             </div>
@@ -116,8 +114,8 @@ function ActivityChart({ data }: { data: Stats['activityByHour'] }) {
               />
             </div>
             {/* etiqueta cada 4 h */}
-            {d.hour % 4 === 0 && (
-              <span className="text-[8px] text-gray-400 leading-none">{String(d.hour).padStart(2, '0')}</span>
+            {d.hourOffset % 4 === 0 && (
+              <span className="text-[8px] text-gray-400 leading-none">{d.label}</span>
             )}
           </div>
         );

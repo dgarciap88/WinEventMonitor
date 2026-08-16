@@ -175,11 +175,18 @@ export interface ProcessMetric {
   ioWriteBytesSec: number;
 }
 
+export interface NetInfo {
+  bytesSentSec: number;
+  bytesRecvSec: number;
+}
+
 export interface SystemSnapshot {
   cpu: CpuInfo;
   ram: RamInfo;
   disk: DiskInfo[];
+  net: NetInfo;
   processes: ProcessMetric[];
+  uptimeSeconds: number;
   generatedAt: string;
 }
 
@@ -187,6 +194,28 @@ export interface HistoryPoint {
   at: string;
   cpuPct: number;
   ramPct: number;
+  netSentBytesSec: number;
+  netRecvBytesSec: number;
+}
+
+export interface TimelineItem {
+  kind: 'process' | 'network' | 'dns' | 'alert' | 'logon';
+  timestamp: string;
+  severity: string | null;
+  summary: string;
+  pid: number | null;
+  processName: string | null;
+}
+
+export interface ResourceSample {
+  timestamp: string;
+  cpuPct: number;
+  ramPct: number;
+  ramUsedMb: number;
+  ramTotalMb: number;
+  diskUsedPct: number;
+  netSentBytesSec: number;
+  netRecvBytesSec: number;
 }
 
 export interface AlertRuleConfig {
@@ -266,7 +295,8 @@ export interface ConnectionsSnapshot {
 }
 
 export interface ActivityHour {
-  hour: number;
+  hourOffset: number;
+  label: string;
   processes: number;
   network: number;
 }

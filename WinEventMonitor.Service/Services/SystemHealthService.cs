@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Management;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 
 namespace WinEventMonitor.Service.Services;
@@ -14,6 +15,7 @@ public sealed class SystemHealthService : IDisposable
     private readonly Timer _timer;
     private Dictionary<int, (TimeSpan cpu, DateTime at)> _prevCpu = new();
     private Dictionary<int, (ulong read, ulong write, DateTime at)> _prevIo = new();
+    private (long sent, long recv, DateTime at)? _prevNet;
     private volatile SystemSnapshot _latest = new();
 
     // Historial circular de hasta 60 puntos (≈2 min a 2 s/muestra)
@@ -63,13 +65,16 @@ public sealed class SystemHealthService : IDisposable
             var ram   = SampleRamWmi();
             var disks = SampleDisks();
             var procs = SampleProcesses();
+            var net   = SampleNetwork();
 
             _latest = new SystemSnapshot
             {
                 Cpu        = new CpuInfo { TotalPercent = Math.Round(cpu, 1), CoreCount = _coreCount },
                 Ram        = ram,
                 Disk       = disks,
+                Net        = net,
                 Processes  = procs,
+                UptimeSeconds = Environment.TickCount64 / 1000,
                 GeneratedAt = DateTime.UtcNow,
             };
 
@@ -85,6 +90,8 @@ public sealed class SystemHealthService : IDisposable
                     At     = DateTime.UtcNow,
                     CpuPct = Math.Round(cpu, 1),
                     RamPct = ramPct,
+                    NetSentBytesSec = net.BytesSentSec,
+                    NetRecvBytesSec = net.BytesRecvSec,
                 });
             }
         }
@@ -140,6 +147,40 @@ public sealed class SystemHealthService : IDisposable
                 FreeGb  = Math.Round((double)d.AvailableFreeSpace / (1024 * 1024 * 1024), 1),
             })
             .ToList();
+
+    // Suma de bytes enviados/recibidos de todas las interfaces activas (no loopback),
+    // convertida a bytes/seg por delta desde la muestra anterior.
+    private NetInfo SampleNetwork()
+    {
+        try
+        {
+            long sent = 0, recv = 0;
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                var stats = nic.GetIPStatistics();
+                sent += stats.BytesSent;
+                recv += stats.BytesReceived;
+            }
+
+            var now = DateTime.UtcNow;
+            long sentSec = 0, recvSec = 0;
+            if (_prevNet is { } prev)
+            {
+                var elapsed = (now - prev.at).TotalSeconds;
+                if (elapsed > 0 && sent >= prev.sent && recv >= prev.recv)
+                {
+                    sentSec = (long)((sent - prev.sent) / elapsed);
+                    recvSec = (long)((recv - prev.recv) / elapsed);
+                }
+            }
+            _prevNet = (sent, recv, now);
+
+            return new NetInfo { BytesSentSec = sentSec, BytesRecvSec = recvSec };
+        }
+        catch { return new NetInfo(); }
+    }
 
     private List<ProcessMetric> SampleProcesses()
     {
@@ -219,8 +260,16 @@ public record SystemSnapshot
     public CpuInfo        Cpu         { get; init; } = new();
     public RamInfo        Ram         { get; init; } = new();
     public List<DiskInfo> Disk        { get; init; } = [];
+    public NetInfo        Net         { get; init; } = new();
     public List<ProcessMetric> Processes { get; init; } = [];
+    public long           UptimeSeconds { get; init; }
     public DateTime       GeneratedAt  { get; init; } = DateTime.UtcNow;
+}
+
+public record NetInfo
+{
+    public long BytesSentSec { get; init; }
+    public long BytesRecvSec { get; init; }
 }
 
 public record CpuInfo
@@ -258,4 +307,6 @@ public record HistoryPoint
     public DateTime At     { get; init; }
     public double   CpuPct { get; init; }
     public double   RamPct { get; init; }
+    public long     NetSentBytesSec { get; init; }
+    public long     NetRecvBytesSec { get; init; }
 }

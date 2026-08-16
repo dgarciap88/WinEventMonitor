@@ -14,6 +14,7 @@ public class EventDbContext : DbContext
     public DbSet<AlertException> AlertExceptions => Set<AlertException>();
     public DbSet<LogonEvent> LogonEvents => Set<LogonEvent>();
     public DbSet<SysmonAdvancedEvent> SysmonAdvancedEvents => Set<SysmonAdvancedEvent>();
+    public DbSet<ResourceSample> ResourceSamples => Set<ResourceSample>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +65,11 @@ public class EventDbContext : DbContext
             e.HasIndex(s => s.EventId);
             e.HasIndex(s => s.SourcePid);
             e.HasIndex(s => s.TargetPid);
+        });
+
+        modelBuilder.Entity<ResourceSample>(e =>
+        {
+            e.HasIndex(r => r.Timestamp);
         });
     }
 }

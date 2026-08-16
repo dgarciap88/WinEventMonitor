@@ -61,26 +61,29 @@ public static class StatsRoutes
                 .Select(g => new { Domain = g.Key, Count = g.Count() })
                 .ToListAsync();
 
-            // ── Actividad por hora (últimas 24h): procesos + red + dns ────────
-            var procByHour = await db.ProcessEvents
-                .Where(e => e.Timestamp >= h24)
-                .GroupBy(e => e.Timestamp.Hour)
-                .Select(g => new { Hour = g.Key, Count = g.Count() })
-                .ToListAsync();
+            // ── Actividad por hora: ventana rodante de las ultimas 24h reales ──
+            // (antes agrupaba por Timestamp.Hour, es decir "hora del dia", mezclando
+            // la actividad de hoy a las 15h con la de ayer a las 15h)
+            var procTimestamps = await db.ProcessEvents
+                .Where(e => e.Timestamp >= h24).Select(e => e.Timestamp).ToListAsync();
+            var netTimestamps = await db.NetworkEvents
+                .Where(e => e.Timestamp >= h24).Select(e => e.Timestamp).ToListAsync();
 
-            var netByHour = await db.NetworkEvents
-                .Where(e => e.Timestamp >= h24)
-                .GroupBy(e => e.Timestamp.Hour)
-                .Select(g => new { Hour = g.Key, Count = g.Count() })
-                .ToListAsync();
+            int BucketOf(DateTime t) => Math.Clamp((int)(now - t).TotalHours, 0, 23);
+            var procByHour = procTimestamps.GroupBy(BucketOf).ToDictionary(g => g.Key, g => g.Count());
+            var netByHour  = netTimestamps.GroupBy(BucketOf).ToDictionary(g => g.Key, g => g.Count());
 
-            // Combinar en array de 24 horas (índice = hora UTC)
-            var activityByHour = Enumerable.Range(0, 24).Select(h => new
-            {
-                Hour      = h,
-                Processes = procByHour.FirstOrDefault(x => x.Hour == h)?.Count ?? 0,
-                Network   = netByHour.FirstOrDefault(x => x.Hour == h)?.Count ?? 0,
-            }).ToArray();
+            // hourOffset: 0 = hora actual, 23 = hace 23 horas. Se devuelve de mas antigua a mas reciente.
+            var activityByHour = Enumerable.Range(0, 24)
+                .Select(hoursAgo => new
+                {
+                    HourOffset = hoursAgo,
+                    Label      = now.AddHours(-hoursAgo).ToString("HH:00"),
+                    Processes  = procByHour.GetValueOrDefault(hoursAgo, 0),
+                    Network    = netByHour.GetValueOrDefault(hoursAgo, 0),
+                })
+                .OrderByDescending(x => x.HourOffset)
+                .ToArray();
 
             // ── Últimas 5 alertas ─────────────────────────────────────────────
             var recentAlerts = await db.AlertEvents

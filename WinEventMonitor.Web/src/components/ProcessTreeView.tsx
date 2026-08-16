@@ -404,6 +404,134 @@ function countNodes(node: ProcessTreeNode): number {
   return 1 + node.children.reduce((n, c) => n + countNodes(c), 0);
 }
 
+// ─── Diagrama visual del árbol (alternativa a la tabla) ──────────────────────
+// Layout recursivo clásico: las hojas se colocan en posiciones consecutivas y
+// cada padre se centra sobre sus hijos. Reutiliza expandedPids/togglePid para
+// que expandir/colapsar se mantenga sincronizado con la vista de tabla.
+
+const DIAG_NODE_W = 168, DIAG_NODE_H = 46, DIAG_H_GAP = 24, DIAG_V_GAP = 46;
+
+interface DiagPosition { node: ProcessTreeNode; depth: number; xUnit: number; parent: ProcessTreeNode | null }
+
+function assignDiagramPositions(
+  node: ProcessTreeNode,
+  depth: number,
+  cursor: { next: number },
+  expandedPids: Set<number>,
+  out: DiagPosition[],
+  parent: ProcessTreeNode | null
+): number {
+  const children = expandedPids.has(node.pid) ? node.children : [];
+  let xUnit: number;
+  if (children.length === 0) {
+    xUnit = cursor.next++;
+  } else {
+    const childXs = children.map(c => assignDiagramPositions(c, depth + 1, cursor, expandedPids, out, node));
+    xUnit = (childXs[0] + childXs[childXs.length - 1]) / 2;
+  }
+  out.push({ node, depth, xUnit, parent });
+  return xUnit;
+}
+
+function ProcessTreeDiagram({
+  tree, expandedPids, togglePid, highlightedPid, alertsByPid, onOpenTimeline,
+}: {
+  tree: ProcessTreeNode[];
+  expandedPids: Set<number>;
+  togglePid: (pid: number) => void;
+  highlightedPid?: number | null;
+  alertsByPid: Record<number, number>;
+  onOpenTimeline: (pid: number, name: string) => void;
+}) {
+  const cursor = { next: 0 };
+  const positions: DiagPosition[] = [];
+  tree.forEach(root => assignDiagramPositions(root, 0, cursor, expandedPids, positions, null));
+
+  if (positions.length === 0) {
+    return <div className="py-12 text-center text-sm text-gray-400">Sin procesos.</div>;
+  }
+
+  const maxDepth = Math.max(...positions.map(p => p.depth));
+  const width  = cursor.next * (DIAG_NODE_W + DIAG_H_GAP);
+  const height = (maxDepth + 1) * (DIAG_NODE_H + DIAG_V_GAP);
+  const px = (p: DiagPosition) => p.xUnit * (DIAG_NODE_W + DIAG_H_GAP) + DIAG_H_GAP / 2;
+  const py = (p: DiagPosition) => p.depth * (DIAG_NODE_H + DIAG_V_GAP) + DIAG_V_GAP / 2;
+  const byPid = new Map(positions.map(p => [p.node.pid, p]));
+
+  return (
+    <div className="overflow-auto max-h-[calc(100vh-200px)] p-4">
+      <svg width={width} height={height} className="block">
+        {/* Enlaces padre-hijo */}
+        {positions.filter(p => p.parent).map(p => {
+          const parentPos = byPid.get(p.parent!.pid)!;
+          const x1 = px(parentPos) + DIAG_NODE_W / 2, y1 = py(parentPos) + DIAG_NODE_H;
+          const x2 = px(p) + DIAG_NODE_W / 2, y2 = py(p);
+          const midY = (y1 + y2) / 2;
+          return (
+            <path
+              key={`edge-${p.node.pid}`}
+              d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`}
+              fill="none"
+              stroke="#d1d5db"
+              strokeWidth={1.5}
+            />
+          );
+        })}
+        {/* Nodos */}
+        {positions.map(p => {
+          const node = p.node;
+          const suspicious = getSuspicionReasons(node).length > 0;
+          const elevated = node.isElevated;
+          const isHighlighted = node.pid === highlightedPid;
+          const alertCount = alertsByPid[node.pid] ?? 0;
+          const hasChildren = node.children.length > 0;
+          const isExpanded = expandedPids.has(node.pid);
+
+          const fill = isHighlighted ? '#dbeafe' : suspicious ? '#ffedd5' : elevated ? '#fee2e2' : '#ffffff';
+          const stroke = isHighlighted ? '#60a5fa' : suspicious ? '#fb923c' : elevated ? '#f87171' : '#d1d5db';
+          const textColor = suspicious ? '#c2410c' : elevated ? '#b91c1c' : '#1f2937';
+          const x = px(p), y = py(p);
+
+          return (
+            <g key={node.pid} transform={`translate(${x}, ${y})`}>
+              <rect
+                width={DIAG_NODE_W} height={DIAG_NODE_H} rx={8}
+                fill={fill} stroke={stroke} strokeWidth={1.5}
+                className={hasChildren ? 'cursor-pointer' : ''}
+                onClick={() => hasChildren && togglePid(node.pid)}
+              />
+              <text x={10} y={18} fontSize={11} fontWeight={600} fill={textColor}>
+                {node.name.length > 20 ? node.name.slice(0, 19) + '…' : node.name}
+              </text>
+              <text x={10} y={33} fontSize={9} fill="#9ca3af" fontFamily="monospace">
+                PID {node.pid}{node.isElevated ? ' · elevado' : ''}
+              </text>
+              {hasChildren && (
+                <text x={DIAG_NODE_W - 16} y={18} fontSize={10} fill="#9ca3af"
+                      className="cursor-pointer" onClick={() => togglePid(node.pid)}>
+                  {isExpanded ? '▼' : `▶${countNodes(node) - 1}`}
+                </text>
+              )}
+              {alertCount > 0 && (
+                <g
+                  className="cursor-pointer"
+                  onClick={() => onOpenTimeline(node.pid, node.name)}
+                >
+                  <circle cx={DIAG_NODE_W - 10} cy={DIAG_NODE_H - 10} r={9} fill="#ef4444" />
+                  <text x={DIAG_NODE_W - 10} y={DIAG_NODE_H - 6} fontSize={9} fill="white" textAnchor="middle" fontWeight={700}>
+                    {alertCount}
+                  </text>
+                </g>
+              )}
+              <title>{node.commandLine ?? node.executablePath ?? node.name}</title>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export function ProcessTreeView({
@@ -420,6 +548,7 @@ export function ProcessTreeView({
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [expandedPids, setExpandedPids] = useState<Set<number>>(new Set());
+  const [viewMode, setViewMode] = useState<'table' | 'diagram'>('table');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -656,6 +785,24 @@ export function ProcessTreeView({
             {tree.reduce((n, node) => n + countNodes(node), 0)} resultados
           </span>
         )}
+        <div className="ml-auto flex gap-1">
+          <button
+            onClick={() => setViewMode('table')}
+            className={`px-3 py-1 rounded text-sm border font-medium ${
+              viewMode === 'table' ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            ☰ Tabla
+          </button>
+          <button
+            onClick={() => setViewMode('diagram')}
+            className={`px-3 py-1 rounded text-sm border font-medium ${
+              viewMode === 'diagram' ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            ⑃ Diagrama
+          </button>
+        </div>
       </div>
 
       {/* ── Error ── */}
@@ -665,7 +812,7 @@ export function ProcessTreeView({
         </div>
       )}
 
-      {/* ── Tabla ── */}
+      {/* ── Tabla / Diagrama ── */}
       <div ref={tableContainerRef} className="rounded-lg border border-gray-200 bg-white overflow-auto max-h-[calc(100vh-200px)]">
         {loading && items.length === 0 ? (
           <div className="py-12 text-center text-sm text-gray-400">Cargando procesos…</div>
@@ -673,6 +820,15 @@ export function ProcessTreeView({
           <div className="py-12 text-center text-sm text-gray-400">
             {mode === 'db' ? 'No hay eventos en la ventana seleccionada.' : 'Sin procesos.'}
           </div>
+        ) : viewMode === 'diagram' ? (
+          <ProcessTreeDiagram
+            tree={tree}
+            expandedPids={expandedPids}
+            togglePid={togglePid}
+            highlightedPid={highlightedPid}
+            alertsByPid={alertsByPid}
+            onOpenTimeline={(pid, name) => setTimelineProcess({ pid, name })}
+          />
         ) : (
           <table className="w-full table-fixed text-xs">
             <thead className="sticky top-0 bg-gray-50 border-b border-gray-200 z-10">

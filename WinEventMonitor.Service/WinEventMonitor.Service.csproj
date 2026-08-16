@@ -17,6 +17,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="WinEventMonitor.Service.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Forzar versiones 9.x de Microsoft.Extensions para evitar que NuGet
          resuelva transitivamente a v10 en máquinas con .NET 10 SDK instalado -->
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.3" />

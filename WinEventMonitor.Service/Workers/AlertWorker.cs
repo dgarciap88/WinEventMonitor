@@ -577,12 +577,29 @@ public class AlertWorker(
     }
 
     // ── Regla 16: Acceso a lsass.exe (Sysmon ID 10) ───────────────────────
+    // PROCESS_VM_READ: sin este bit no se puede leer memoria del proceso, solo
+    // consultar metadatos (nombre, tiempos de CPU...). Herramientas de monitorizacion
+    // legitimas (incluido este propio servicio) abren lsass.exe constantemente con
+    // GrantedAccess=0x1000 (PROCESS_QUERY_LIMITED_INFORMATION) sin ninguna intencion
+    // de volcar credenciales; un volcador real (Mimikatz y similares) siempre pide VM_READ.
+    private const int ProcessVmRead = 0x0010;
+
+    internal static bool HasMemoryReadAccess(string? grantedAccessHex)
+    {
+        if (string.IsNullOrEmpty(grantedAccessHex)) return true; // sin dato: no descartar
+        var hex = grantedAccessHex.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+            ? grantedAccessHex[2..] : grantedAccessHex;
+        return !int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var access)
+            || (access & ProcessVmRead) != 0;
+    }
+
     private async Task CheckLsassAccessAsync(List<Models.SysmonAdvancedEvent> events)
     {
         if (!rulesService.IsEnabled(16)) return;
         foreach (var ev in events)
         {
             if (!string.Equals(ev.TargetProcessName, "lsass.exe", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!HasMemoryReadAccess(ev.GrantedAccess)) continue;
 
             await alertService.AddAsync(new AlertEvent
             {

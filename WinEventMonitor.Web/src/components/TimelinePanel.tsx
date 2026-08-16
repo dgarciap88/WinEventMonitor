@@ -168,7 +168,9 @@ export function TimelinePanel() {
                   className="px-4 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 cursor-pointer"
                 >
                   <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: meta.color }} />
-                  <span className="text-gray-400 w-16 flex-shrink-0"><Timestamp value={item.timestamp} /></span>
+                  <span className="text-gray-400 w-16 flex-shrink-0 tabular-nums">
+                    {new Date(item.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
                   {item.severity && (
                     <span className="px-1 py-0.5 rounded bg-red-100 text-red-700 text-[10px] flex-shrink-0">{item.severity}</span>
                   )}

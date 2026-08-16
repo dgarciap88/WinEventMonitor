@@ -24,6 +24,11 @@ const KNOWN_RULES = [
   'Persistencia – Servicio de Windows nuevo',
   'Cuenta – Usuario o administrador nuevo',
   'Auditoría – Registro de seguridad borrado',
+  'Beaconing – Conexión periódica sospechosa',
+  'Imagen sin firma con conexión de red',
+  'Persistencia con conexión de red',
+  'Nuevo puerto en escucha',
+  'DNS – Dominio de aspecto generado (DGA)',
 ];
 
 describe('getAlertExplanation', () => {

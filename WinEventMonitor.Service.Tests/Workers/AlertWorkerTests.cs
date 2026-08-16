@@ -30,4 +30,21 @@ public class AlertWorkerTests
     {
         Assert.True(AlertWorker.HasMemoryReadAccess(grantedAccess));
     }
+
+    [Theory]
+    [InlineData("xqzvbnmqwrtyplk.com")]     // racha larga de consonantes
+    [InlineData("a1b2c3d4e5f6g7h8.net")]    // alta densidad de digitos
+    public void LooksAlgorithmicallyGenerated_TrueForGibberishLabels(string domain)
+    {
+        Assert.True(AlertWorker.LooksAlgorithmicallyGenerated(domain));
+    }
+
+    [Theory]
+    [InlineData("generativelanguage.googleapis.com")] // dominio real largo, pero legible
+    [InlineData("github.com")]
+    [InlineData("xkcd.com")]                            // corto, aunque consonante-denso
+    public void LooksAlgorithmicallyGenerated_FalseForRealisticDomains(string domain)
+    {
+        Assert.False(AlertWorker.LooksAlgorithmicallyGenerated(domain));
+    }
 }

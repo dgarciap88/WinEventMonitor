@@ -181,6 +181,15 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw(
         "CREATE INDEX IF NOT EXISTS IX_ResourceSamples_Timestamp ON ResourceSamples (Timestamp)");
 
+    // Tabla KnownListenPorts — mejoras funcionales, Fase 6: base de referencia
+    // para detectar puertos en escucha nuevos (posible backdoor).
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS KnownListenPorts (
+            Port INTEGER NOT NULL PRIMARY KEY,
+            FirstSeen TEXT NOT NULL
+        )
+        """);
+
     // Tabla AlertExceptions — mejoras funcionales, Fase 1: permite silenciar una
     // regla para un proceso concreto (o todos) sin desactivar la regla entera.
     db.Database.ExecuteSqlRaw("""

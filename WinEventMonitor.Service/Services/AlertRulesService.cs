@@ -41,6 +41,12 @@ public sealed class AlertRulesService
         new(19, "Persistencia – Servicio de Windows nuevo", "Medium", true, "Se creó un servicio de Windows mediante sc.exe o New-Service"),
         new(20, "Cuenta – Usuario o administrador nuevo",   "High", true, "Se creó una cuenta local o se añadió un usuario al grupo de administradores"),
         new(21, "Auditoría – Registro de seguridad borrado","High", true, "Se borró el registro de eventos de seguridad de Windows (Event ID 1102)"),
+        // ── Fase 6: deteccion de amenazas avanzadas (RAT / troyanos) ──────────────
+        new(22, "Beaconing – Conexión periódica sospechosa", "Medium", true, "Un proceso se conecta al mismo destino a intervalos regulares durante horas (patrón de C2)"),
+        new(23, "Imagen sin firma con conexión de red",     "High",   true, "Un proceso cargó una imagen sin firma y abrió una conexión de red poco después"),
+        new(24, "Persistencia con conexión de red",          "High",   true, "Un proceso escribió una clave de autoarranque y además hizo conexiones salientes"),
+        new(25, "Nuevo puerto en escucha",                   "Medium", true, "Un proceso empezó a escuchar en un puerto que no se había visto antes en este equipo"),
+        new(26, "DNS – Dominio de aspecto generado (DGA)",   "Low",    true, "Consulta DNS a un dominio con patrón típico de generación algorítmica"),
     ];
 
     public AlertRulesService()

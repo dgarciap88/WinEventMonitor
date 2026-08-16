@@ -17,6 +17,10 @@ public class AlertWorker(
 {
     private DateTime _lastScan = DateTime.UtcNow.AddMinutes(-2);
 
+    // Evita re-alertar el mismo beacon (proceso+destino) en cada escaneo de 60s
+    // mientras la conexion periodica siga activa.
+    private readonly Dictionary<string, DateTime> _beaconAlerted = new();
+
     // ─── Listas de referencia (LOLBins) ───────────────────────────────────────
     private static readonly HashSet<string> Shells = new(StringComparer.OrdinalIgnoreCase)
         { "cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe",
@@ -102,6 +106,12 @@ public class AlertWorker(
             await CheckScheduledTaskAsync(newProcs);
             await CheckNewServiceAsync(newProcs);
             await CheckNewAdminAccountAsync(newProcs);
+            // ── Fase 6: deteccion de amenazas avanzadas (RAT / troyanos) ─────
+            await CheckBeaconingAsync(db);
+            await CheckUnsignedImageNetworkAsync(db, newAdvanced.Where(e => e.EventId == 7).ToList());
+            await CheckPersistenceNetworkAsync(db, newAdvanced.Where(e => e.EventId == 13).ToList());
+            await CheckNewListeningPortAsync(db);
+            await CheckDgaDnsAsync(newDns);
         }
         catch (Exception ex)
         {
@@ -717,6 +727,206 @@ public class AlertWorker(
                 ProcessName    = ev.ProcessName,
                 Details        = $"CmdLine: {cmd}",
                 MitreTechnique = "T1136.001",
+            });
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // FASE 6 — DETECCION DE AMENAZAS AVANZADAS (RAT / troyanos)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Regla 22: Beaconing — conexiones periodicas y regulares al mismo destino ─
+    private async Task CheckBeaconingAsync(EventDbContext db)
+    {
+        if (!rulesService.IsEnabled(22)) return;
+
+        var window = DateTime.UtcNow.AddHours(-3);
+        var recent = await db.NetworkEvents.AsNoTracking()
+            .Where(e => e.Timestamp >= window && e.Initiated && e.DestinationIp != null)
+            .Select(e => new { e.Pid, e.ProcessName, e.DestinationIp, e.DestinationPort, e.Timestamp })
+            .ToListAsync();
+
+        var groups = recent
+            .GroupBy(e => (e.Pid, e.DestinationIp, e.DestinationPort))
+            .Where(g => g.Count() >= 6);
+
+        foreach (var g in groups)
+        {
+            var key = $"{g.Key.Pid}|{g.Key.DestinationIp}|{g.Key.DestinationPort}";
+            if (_beaconAlerted.TryGetValue(key, out var lastAlert) &&
+                DateTime.UtcNow - lastAlert < TimeSpan.FromHours(6))
+                continue;
+
+            var timestamps = g.Select(x => x.Timestamp).OrderBy(t => t).ToList();
+            var deltas = new List<double>();
+            for (var i = 1; i < timestamps.Count; i++)
+                deltas.Add((timestamps[i] - timestamps[i - 1]).TotalSeconds);
+
+            var mean = deltas.Average();
+            if (mean is < 10 or > 1800) continue; // ignora rafagas muy rapidas o eventos muy espaciados
+
+            var variance = deltas.Sum(d => Math.Pow(d - mean, 2)) / deltas.Count;
+            var coefVariation = Math.Sqrt(variance) / mean;
+            if (coefVariation > 0.15) continue; // no es lo bastante regular como para ser un latido
+
+            var procName = g.First().ProcessName;
+            _beaconAlerted[key] = DateTime.UtcNow;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = timestamps[^1],
+                Severity       = rulesService.GetSeverity(22, "Medium"),
+                Rule           = "Beaconing – Conexión periódica sospechosa",
+                Description    = $"{procName} se conecta a {g.Key.DestinationIp}:{g.Key.DestinationPort} cada ~{mean:F0}s de forma regular",
+                Pid            = g.Key.Pid,
+                ProcessName    = procName,
+                RelatedIp      = g.Key.DestinationIp,
+                Details        = $"{timestamps.Count} conexiones en las últimas 3h | intervalo medio {mean:F0}s | variación {coefVariation:P0}",
+                MitreTechnique = "T1071",
+            });
+        }
+    }
+
+    // ── Regla 23: imagen sin firma + conexión de red poco después (mismo proceso) ─
+    private async Task CheckUnsignedImageNetworkAsync(EventDbContext db, List<Models.SysmonAdvancedEvent> unsignedEvents)
+    {
+        if (!rulesService.IsEnabled(23)) return;
+        var window = TimeSpan.FromMinutes(2);
+
+        foreach (var ev in unsignedEvents)
+        {
+            var path = ev.ImagePath?.ToLowerInvariant() ?? "";
+            if (path.StartsWith(@"c:\windows\")) continue;
+
+            var hasNetwork = await db.NetworkEvents.AsNoTracking().AnyAsync(n =>
+                n.Pid == ev.SourcePid && n.Initiated &&
+                n.Timestamp >= ev.Timestamp - window && n.Timestamp <= ev.Timestamp + window);
+            if (!hasNetwork) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(23, "High"),
+                Rule           = "Imagen sin firma con conexión de red",
+                Description    = $"{ev.SourceProcessName} cargó una imagen sin firma y se conectó a la red en la misma ventana de tiempo",
+                Pid            = ev.SourcePid,
+                ProcessName    = ev.SourceProcessName,
+                Details        = $"Imagen: {ev.ImagePath} | SHA256: {ev.Sha256}",
+                MitreTechnique = "T1105",
+            });
+        }
+    }
+
+    // ── Regla 24: persistencia (clave de autoarranque) + conexión de red ──────
+    private async Task CheckPersistenceNetworkAsync(EventDbContext db, List<Models.SysmonAdvancedEvent> registryEvents)
+    {
+        if (!rulesService.IsEnabled(24)) return;
+        var window = TimeSpan.FromMinutes(5);
+
+        foreach (var ev in registryEvents)
+        {
+            var hasNetwork = await db.NetworkEvents.AsNoTracking().AnyAsync(n =>
+                n.Pid == ev.SourcePid && n.Initiated &&
+                n.Timestamp >= ev.Timestamp - window && n.Timestamp <= ev.Timestamp + window);
+            if (!hasNetwork) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(24, "High"),
+                Rule           = "Persistencia con conexión de red",
+                Description    = $"{ev.SourceProcessName} se instaló para arrancar automáticamente y además hizo conexiones de red",
+                Pid            = ev.SourcePid,
+                ProcessName    = ev.SourceProcessName,
+                Details        = $"Clave: {ev.TargetObject} | Valor: {ev.RegistryDetails}",
+                MitreTechnique = "T1547.001",
+            });
+        }
+    }
+
+    // ── Regla 25: puerto TCP nuevo en escucha (posible backdoor) ──────────────
+    private async Task CheckNewListeningPortAsync(EventDbContext db)
+    {
+        if (!rulesService.IsEnabled(25)) return;
+
+        List<int> currentPorts;
+        try
+        {
+            currentPorts = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners()
+                .Select(e => e.Port)
+                .Distinct()
+                .ToList();
+        }
+        catch { return; }
+
+        var known = await db.KnownListenPorts.AsNoTracking().Select(k => k.Port).ToListAsync();
+        var knownSet = known.ToHashSet();
+        var isFirstRun = known.Count == 0;
+
+        var newPorts = currentPorts.Where(p => !knownSet.Contains(p)).ToList();
+        if (newPorts.Count == 0) return;
+
+        foreach (var port in newPorts)
+            db.KnownListenPorts.Add(new KnownListenPort { Port = port, FirstSeen = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+
+        // Primera vez que corre esta version: solo aprende la base de puertos
+        // existentes, no alerta (si no, cada instalacion nueva dispararia una
+        // alerta por cada puerto que ya estaba en uso legitimamente).
+        if (isFirstRun) return;
+
+        foreach (var port in newPorts)
+        {
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = DateTime.UtcNow,
+                Severity       = rulesService.GetSeverity(25, "Medium"),
+                Rule           = "Nuevo puerto en escucha",
+                Description    = $"Un proceso ha empezado a escuchar en el puerto {port}, no visto antes en este equipo",
+                Details        = $"Puerto: {port}. Revisa la pestaña Accesos > Conexiones para ver qué proceso lo abrió.",
+                MitreTechnique = "T1571",
+            });
+        }
+    }
+
+    // ── Regla 26: DNS a dominio con aspecto de generacion algoritmica (DGA) ────
+    internal static bool LooksAlgorithmicallyGenerated(string domain)
+    {
+        var label = domain.Split('.').FirstOrDefault() ?? "";
+        if (label.Length < 10) return false; // los DGA reales generan strings largos
+
+        const string consonants = "bcdfghjklmnpqrstvwxyz";
+        int maxConsonantRun = 0, currentRun = 0, digitCount = 0;
+
+        foreach (var c in label.ToLowerInvariant())
+        {
+            if (char.IsDigit(c)) { digitCount++; currentRun = 0; continue; }
+            if (consonants.Contains(c)) { currentRun++; maxConsonantRun = Math.Max(maxConsonantRun, currentRun); }
+            else currentRun = 0;
+        }
+
+        var digitRatio = (double)digitCount / label.Length;
+        return maxConsonantRun >= 5 || (digitRatio > 0.3 && label.Length >= 12);
+    }
+
+    private async Task CheckDgaDnsAsync(List<DnsEvent> dnsEvents)
+    {
+        if (!rulesService.IsEnabled(26)) return;
+        foreach (var ev in dnsEvents)
+        {
+            if (!LooksAlgorithmicallyGenerated(ev.QueryName)) continue;
+
+            await alertService.AddAsync(new AlertEvent
+            {
+                Timestamp      = ev.Timestamp,
+                Severity       = rulesService.GetSeverity(26, "Low"),
+                Rule           = "DNS – Dominio de aspecto generado (DGA)",
+                Description    = $"Consulta DNS a un dominio con aspecto de generación automática: {ev.QueryName}",
+                Pid            = ev.Pid,
+                ProcessName    = ev.ProcessName,
+                Details        = $"Query: {ev.QueryName} | IPs: {ev.QueryResults}",
+                MitreTechnique = "T1568.002",
             });
         }
     }

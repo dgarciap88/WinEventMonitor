@@ -135,6 +135,36 @@ const EXPLANATIONS: Record<string, AlertExplanation> = {
     action:
       'Alerta crítica: el borrado del log es sospechoso incluso si no ves nada más. Si no lo hiciste tú, investiga qué pudo haber pasado justo antes.',
   },
+  'Beaconing – Conexión periódica sospechosa': {
+    summary:
+      'Un programa se está conectando una y otra vez al mismo destino con una regularidad casi perfecta durante horas — el patrón típico de un malware "llamando a casa" a su servidor de control.',
+    action:
+      'Revisa qué programa es y a qué IP se conecta. Muchas apps legítimas (sincronización, telemetría) también laten así — si reconoces el programa, márcalo como confiable; si no, investígalo.',
+  },
+  'Imagen sin firma con conexión de red': {
+    summary:
+      'Un proceso cargó un componente sin firma digital y, casi a la vez, se conectó a la red — combinación típica de un payload descargado que se ejecuta y contacta con el exterior.',
+    action:
+      'Revisa qué imagen se cargó y a dónde se conectó. Si no reconoces ninguna de las dos cosas, trátalo como sospechoso.',
+  },
+  'Persistencia con conexión de red': {
+    summary:
+      'Un proceso se ha configurado para arrancar automáticamente con el sistema y además ha hecho conexiones de red — la combinación de "quiero sobrevivir a un reinicio" y "quiero hablar con el exterior" es típica de malware con persistencia.',
+    action:
+      'Alerta de alta prioridad. Revisa la clave de registro y a qué se conectó. Si no lo reconoces, elimina la entrada de autoarranque y analiza el equipo.',
+  },
+  'Nuevo puerto en escucha': {
+    summary:
+      'Un programa ha empezado a aceptar conexiones entrantes en un puerto que nunca había usado en este equipo — así es como funciona una puerta trasera (backdoor) esperando a que alguien se conecte desde fuera.',
+    action:
+      'Ve a la pestaña Accesos > Conexiones para ver qué proceso está escuchando en ese puerto ahora mismo. Si no reconoces el programa, investígalo antes de nada.',
+  },
+  'DNS – Dominio de aspecto generado (DGA)': {
+    summary:
+      'Se ha consultado un dominio cuyo nombre parece generado automáticamente (letras sin sentido o muchos números seguidos) — una técnica que usa el malware para generar constantemente nuevos dominios de control y dificultar que los bloqueen.',
+    action:
+      'Severidad baja porque hay bastantes falsos positivos (nombres técnicos de CDN, etc.), pero si se repite mucho con el mismo proceso, merece una revisión.',
+  },
 };
 
 export function getAlertExplanation(rule: string): AlertExplanation | null {

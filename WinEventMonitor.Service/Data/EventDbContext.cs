@@ -15,6 +15,7 @@ public class EventDbContext : DbContext
     public DbSet<LogonEvent> LogonEvents => Set<LogonEvent>();
     public DbSet<SysmonAdvancedEvent> SysmonAdvancedEvents => Set<SysmonAdvancedEvent>();
     public DbSet<ResourceSample> ResourceSamples => Set<ResourceSample>();
+    public DbSet<KnownListenPort> KnownListenPorts => Set<KnownListenPort>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,6 +71,11 @@ public class EventDbContext : DbContext
         modelBuilder.Entity<ResourceSample>(e =>
         {
             e.HasIndex(r => r.Timestamp);
+        });
+
+        modelBuilder.Entity<KnownListenPort>(e =>
+        {
+            e.HasKey(k => k.Port);
         });
     }
 }

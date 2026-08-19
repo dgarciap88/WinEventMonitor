@@ -10,6 +10,7 @@ import type {
   SetupStatus,
   LiveProcess,
   AlertEvent,
+  AlertException,
   Stats,
   SystemSnapshot,
   HistoryPoint,
@@ -137,6 +138,15 @@ export async function updateAlertStatus(
 ): Promise<AlertEvent> {
   const { data } = await client.patch(`/api/alerts/${id}`, { status });
   return data;
+}
+
+export async function getAlertExceptions(): Promise<AlertException[]> {
+  const { data } = await client.get('/api/alerts/exceptions');
+  return data;
+}
+
+export async function deleteAlertException(id: string): Promise<void> {
+  await client.delete(`/api/alerts/exceptions/${id}`);
 }
 
 // ─── Estadísticas / Dashboard ─────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSetupStatus, applySysmonConfig, enableAuditPolicy, enableLogonAudit, getTrustedDomains, addTrustedDomain, removeTrustedDomain, getAlertRules, patchAlertRule } from '../api/client';
-import type { SetupStatus, AlertRuleConfig } from '../api/types';
+import { getSetupStatus, applySysmonConfig, enableAuditPolicy, enableLogonAudit, getTrustedDomains, addTrustedDomain, removeTrustedDomain, getAlertRules, patchAlertRule, getAlertExceptions, deleteAlertException } from '../api/client';
+import type { SetupStatus, AlertRuleConfig, AlertException } from '../api/types';
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
@@ -276,6 +276,9 @@ export function SetupPanel() {
 
       {/* Reglas de detección configurables */}
       <AlertRulesSection />
+
+      {/* Excepciones ("confío en esto") */}
+      <AlertExceptionsSection />
     </div>
   );
 }
@@ -363,6 +366,79 @@ function AlertRulesSection() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Sección de excepciones ("confío en esto") ───────────────────────────────
+
+function AlertExceptionsSection() {
+  const [exceptions, setExceptions] = useState<AlertException[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [busy, setBusy]             = useState<string | null>(null);
+  const [error, setError]           = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getAlertExceptions()
+      .then(setExceptions)
+      .catch(() => setError('No se pudieron cargar las excepciones.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async (exc: AlertException) => {
+    setBusy(exc.id);
+    try {
+      await deleteAlertException(exc.id);
+      setExceptions(prev => prev.filter(e => e.id !== exc.id));
+    } catch {
+      setError('Error al quitar la excepción.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-gray-700">Excepciones ("Confío en esto")</h3>
+        <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
+          {exceptions.length}
+        </span>
+      </div>
+      <p className="text-xs text-gray-400 mb-4">
+        Se crean desde una alerta al marcarla como "Confío en esto". Mientras estén aquí, esa
+        regla deja de avisar para el proceso indicado (o para cualquier proceso si no hay ninguno).
+      </p>
+      {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
+      {loading ? (
+        <p className="text-xs text-gray-400 py-4 text-center">Cargando…</p>
+      ) : exceptions.length === 0 ? (
+        <p className="text-xs text-gray-400 py-4 text-center">Sin excepciones configuradas.</p>
+      ) : (
+        <ul className="divide-y max-h-72 overflow-y-auto rounded border">
+          {exceptions.map(exc => (
+            <li key={exc.id} className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-50">
+              <div className="min-w-0">
+                <p className="text-sm text-gray-800 truncate">{exc.rule}</p>
+                <p className="text-xs text-gray-400">
+                  {exc.processName ? <>proceso: <span className="font-mono">{exc.processName}</span></> : 'cualquier proceso'}
+                </p>
+              </div>
+              <button
+                disabled={busy === exc.id}
+                onClick={() => remove(exc)}
+                title="Quitar excepción (la regla volverá a avisar)"
+                className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 px-1 flex-shrink-0"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
